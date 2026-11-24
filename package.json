@@ -7,8 +7,8 @@
   "scripts": {
     "start": "electron .",
     "server": "node src/server/signaling.js",
-    "build:win": "electron-builder --win",
-    "dist": "electron-builder --win",
+    "build:win": "electron-builder --win --publish never",
+    "dist": "electron-builder --win --publish never",
     "test": "echo \"No test specified\" && exit 0"
   },
   "repository": {
@@ -36,6 +36,7 @@
     "appId": "com.primedesk.support",
     "productName": "PrimeDesk",
     "copyright": "Copyright © 2026 Basliel Getu",
+    "publish": null,
     "directories": {
       "output": "dist"
     },
