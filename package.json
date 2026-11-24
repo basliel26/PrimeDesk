@@ -1,8 +1,8 @@
 {
   "name": "primedesk",
   "productName": "PrimeDesk",
-  "version": "1.0.1",
-  "description": "Enterprise WebRTC Remote Desktop Support Suite for Hospital EHR Systems",
+  "version": "1.0.2",
+  "description": "Enterprise WebRTC Remote Desktop Support Suite",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
@@ -20,8 +20,7 @@
     "webrtc",
     "electron",
     "anydesk-alternative",
-    "hospital-support",
-    "ehr"
+    "enterprise-support"
   ],
   "author": "Basliel Getu",
   "license": "MIT",

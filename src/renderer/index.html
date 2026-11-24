@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PrimeDesk Enterprise - Hospital Remote Support</title>
+  <title>PrimeDesk Enterprise - Remote Desktop Suite</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -23,7 +23,7 @@
         </div>
         <div class="brand-text">
           <h1>Prime<span>Desk</span></h1>
-          <span class="subtext">EHR Remote Support Suite</span>
+          <span class="subtext">Enterprise Remote Desktop Suite</span>
         </div>
       </div>
 
@@ -63,7 +63,7 @@
     <main class="dashboard-view" id="dashboardView">
       <div class="cards-grid">
         
-        <!-- Left Card: Hospital Terminal Information -->
+        <!-- Left Card: Host Terminal Information -->
         <div class="card host-card">
           <div class="card-header">
             <div class="card-icon host-icon">
@@ -131,7 +131,7 @@
             </div>
             <div>
               <h2>Control Remote Terminal</h2>
-              <p>Establish a secure support session to a remote hospital</p>
+              <p>Establish a secure support session to a remote device</p>
             </div>
           </div>
 
@@ -175,23 +175,23 @@
       <div class="addressbook-container">
         <div class="addressbook-header">
           <div>
-            <h2>Hospital Directory</h2>
-            <p>Saved client hospital workstations for rapid one-click support</p>
+            <h2>Device Directory</h2>
+            <p>Saved remote workstations for rapid one-click support</p>
           </div>
-          <button class="btn btn-primary btn-add-hospital" id="addHospitalBtn">
+          <button class="btn btn-primary btn-add-workstation" id="addWorkstationBtn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             Add Workstation
           </button>
         </div>
 
-        <div class="hospital-cards-grid" id="hospitalCardsGrid"></div>
+        <div class="workstation-cards-grid" id="workstationCardsGrid"></div>
 
         <div class="empty-addressbook" id="emptyAddressBook" style="display: none;">
           <div class="empty-icon">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
           </div>
           <h3>No Workstations Registered</h3>
-          <p>Add hospital workstations to initiate support sessions with a single click.</p>
+          <p>Add workstations to initiate support sessions with a single click.</p>
         </div>
       </div>
     </main>
@@ -207,7 +207,7 @@
           </div>
           <div>
             <h3>Incoming Support Request</h3>
-            <p id="incomingCallerText">EHR Technical Support is requesting access</p>
+            <p id="incomingCallerText">Remote Technical Support is requesting access</p>
           </div>
         </div>
 
@@ -239,13 +239,13 @@
       </div>
     </div>
 
-    <!-- Hospital Floating Pill -->
+    <!-- Floating Pill View -->
     <div class="floating-pill-view" id="floatingPillView" style="display: none;">
       <div class="pill-badge">
         <span class="pulse-indicator"></span>
         <div class="pill-info">
           <span class="pill-title">Remote Session Active</span>
-          <span class="pill-desc">EHR Support Connected</span>
+          <span class="pill-desc">Remote Support Connected</span>
         </div>
       </div>
       <div class="pill-actions">
@@ -352,26 +352,26 @@
       </div>
     </div>
 
-    <!-- Add Hospital Modal -->
-    <div class="modal-backdrop" id="addHospitalModal" style="display: none;">
+    <!-- Add Workstation Modal -->
+    <div class="modal-backdrop" id="addWorkstationModal" style="display: none;">
       <div class="modal">
         <div class="modal-header">
           <h3>Add Workstation to Directory</h3>
-          <button class="modal-close" id="closeAddHospitalBtn">✕</button>
+          <button class="modal-close" id="closeAddWorkstationBtn">✕</button>
         </div>
         <div class="modal-body">
-          <label for="hospitalNameInput">Workstation / Hospital Name</label>
-          <input type="text" id="hospitalNameInput" placeholder="e.g. St. Paul Hospital - Main Server">
+          <label for="workstationNameInput">Workstation / Device Name</label>
+          <input type="text" id="workstationNameInput" placeholder="e.g. Finance Server - Office 1">
 
-          <label for="hospitalCodeInput">6-Digit Terminal Address</label>
-          <input type="text" id="hospitalCodeInput" placeholder="e.g. 582-914" maxlength="7">
+          <label for="workstationCodeInput">6-Digit Terminal Address</label>
+          <input type="text" id="workstationCodeInput" placeholder="e.g. 582-914" maxlength="7">
 
-          <label for="hospitalPasswordInput">Unattended Master Password (Optional)</label>
-          <input type="password" id="hospitalPasswordInput" placeholder="Optional for automated access">
+          <label for="workstationPasswordInput">Unattended Master Password (Optional)</label>
+          <input type="password" id="workstationPasswordInput" placeholder="Optional for automated access">
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" id="cancelAddHospitalBtn">Cancel</button>
-          <button class="btn btn-primary" id="saveHospitalBtn">Save Workstation</button>
+          <button class="btn btn-secondary" id="cancelAddWorkstationBtn">Cancel</button>
+          <button class="btn btn-primary" id="saveWorkstationBtn">Save Workstation</button>
         </div>
       </div>
     </div>
@@ -474,7 +474,7 @@
                 <div class="setting-row">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Prevent Sleep During Active Sessions</span>
-                    <span class="setting-row-desc">Keeps the hospital terminal awake while a remote support connection is active.</span>
+                    <span class="setting-row-desc">Keeps the remote terminal awake while a remote support connection is active.</span>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="preventSleepToggle" checked>
@@ -496,33 +496,23 @@
                     <input type="radio" name="serverMode" value="cloud" id="modeCloud">
                     <div class="radio-card-content">
                       <span class="radio-card-title">Cloud Internet Mode</span>
-                      <span class="radio-card-desc">Public internet discovery across broadband, cellular, and remote branch clinics.</span>
+                      <span class="radio-card-desc">Public internet discovery across broadband, cellular, and remote branch networks.</span>
                     </div>
                   </label>
                   <label class="radio-card">
                     <input type="radio" name="serverMode" value="lan" id="modeLan">
                     <div class="radio-card-content">
-                      <span class="radio-card-title">Hospital LAN Mode (Offline)</span>
-                      <span class="radio-card-desc">Zero internet required. Operates across local hospital Wi-Fi or Ethernet switches.</span>
+                      <span class="radio-card-title">Offline Mode</span>
+                      <span class="radio-card-desc">Zero internet required. Operates across local Wi-Fi or Ethernet switches.</span>
                     </div>
                   </label>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row-info">
-                    <span class="setting-row-title">Signaling Server Endpoint</span>
-                    <span class="setting-row-desc">WebSocket signaling URI (e.g. <code>ws://192.168.1.15:9000</code> or cloud domain).</span>
-                  </div>
-                  <div class="input-action-group">
-                    <input type="text" id="signalingUrlInput" value="wss://primedesk-signal.onrender.com" class="setting-input">
-                    <button class="btn btn-secondary btn-sm" id="detectLocalIpBtn">Detect LAN IP</button>
-                  </div>
                 </div>
               </div>
 
               <div class="setting-card">
                 <div class="setting-card-header">
                   <div class="card-header-title">Institutional Proxy Configuration</div>
-                  <div class="card-header-desc">Route outbound traffic through hospital HTTP or SOCKS5 proxies (Squid).</div>
+                  <div class="card-header-desc">Route outbound traffic through HTTP or SOCKS5 proxies (Squid).</div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row-info">
@@ -530,15 +520,15 @@
                     <span class="setting-row-desc">Choose proxy resolution strategy for outbound signaling and WebRTC.</span>
                   </div>
                   <select id="proxyModeSelect" class="setting-select">
-                    <option value="direct" selected>Direct Connection (No Proxy)</option>
-                    <option value="system">Use Windows System Proxy</option>
+                    <option value="system" selected>Use Windows System Proxy (Recommended)</option>
+                    <option value="direct">Direct Connection (No Proxy)</option>
                     <option value="manual">Manual Proxy Configuration</option>
                   </select>
                 </div>
                 <div class="setting-row" id="manualProxyHostRow" style="display: none;">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Proxy Server Address</span>
-                    <span class="setting-row-desc">Format: <code>host:port</code> (e.g. <code>10.18.113.140:3128</code> or <code>proxy.hospital.local:8080</code>).</span>
+                    <span class="setting-row-desc">Format: <code>host:port</code> (e.g. <code>10.18.113.140:3128</code> or <code>proxy.company.local:8080</code>).</span>
                   </div>
                   <input type="text" id="proxyServerInput" placeholder="10.18.113.140:3128" class="setting-input">
                 </div>
@@ -587,12 +577,12 @@
                 <div class="setting-row">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Image Quality Profile</span>
-                    <span class="setting-row-desc">Prioritize sub-millisecond mouse response or pixel-sharp medical typography.</span>
+                    <span class="setting-row-desc">Prioritize sub-millisecond mouse response or pixel-sharp typography.</span>
                   </div>
                   <select id="qualityProfileSelect" class="setting-select">
-                    <option value="balanced" selected>Balanced (Standard EHR Workflows)</option>
+                    <option value="balanced" selected>Balanced (Standard Workflows)</option>
                     <option value="speed">Ultra Low Latency (Prioritize Input Response)</option>
-                    <option value="quality">High Definition (Prioritize Text & X-Ray Clarity)</option>
+                    <option value="quality">High Definition (Prioritize Text Clarity)</option>
                   </select>
                 </div>
                 <div class="setting-row">
@@ -613,12 +603,12 @@
               <div class="setting-card">
                 <div class="setting-card-header">
                   <div class="card-header-title">System Audio Streaming</div>
-                  <div class="card-header-desc">Transmit hospital workstation audio cues directly to technician headphones.</div>
+                  <div class="card-header-desc">Transmit remote workstation audio cues directly to technician headphones.</div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Transmit System Audio</span>
-                    <span class="setting-row-desc">Stream EHR alert chimes, system notification beeps, and diagnostic sounds.</span>
+                    <span class="setting-row-desc">Stream system alert chimes, notification beeps, and audio cues.</span>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="audioEnabledToggle" checked>
@@ -628,7 +618,7 @@
                 <div class="setting-row">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Mute Remote Physical Speakers</span>
-                    <span class="setting-row-desc">Silences physical speakers in the hospital room during remote operations.</span>
+                    <span class="setting-row-desc">Silences physical speakers on the remote device during operations.</span>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="muteHostSpeakersToggle">
@@ -685,7 +675,7 @@
                 <div class="setting-row">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Bidirectional Clipboard Synchronization</span>
-                    <span class="setting-row-desc">Allows copying and pasting text between technician and hospital workstation.</span>
+                    <span class="setting-row-desc">Allows copying and pasting text between technician and remote workstation.</span>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="permClipboardToggle" checked>
@@ -695,7 +685,7 @@
                 <div class="setting-row">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Incoming Direct File Transfer</span>
-                    <span class="setting-row-desc">Allows technician to transfer EHR updates, patches, and logs directly over WebRTC.</span>
+                    <span class="setting-row-desc">Allows technician to transfer files, patches, and logs directly over WebRTC.</span>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="permFileToggle" checked>
@@ -705,7 +695,7 @@
                 <div class="setting-row">
                   <div class="setting-row-info">
                     <span class="setting-row-title">Physical Monitor Blackout (Privacy Mode)</span>
-                    <span class="setting-row-desc">Allows technician to obscure the physical screen to protect patient confidentiality.</span>
+                    <span class="setting-row-desc">Allows technician to obscure the physical screen to protect confidentiality.</span>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="permPrivacyToggle" checked>
@@ -717,7 +707,7 @@
               <div class="setting-card">
                 <div class="setting-card-header">
                   <div class="card-header-title">Session Termination Safeguards</div>
-                  <div class="card-header-desc">Prevent unauthorized access to clinical EHR software after a technician leaves.</div>
+                  <div class="card-header-desc">Prevent unauthorized access to remote software after a technician leaves.</div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row-info">
@@ -736,8 +726,8 @@
             <div class="settings-section" id="sec-recording">
               <div class="setting-card">
                 <div class="setting-card-header">
-                  <div class="card-header-title">EHR Medical Compliance Recording</div>
-                  <div class="card-header-desc">Record remote support sessions for HIPAA/EHR compliance and accountability.</div>
+                  <div class="card-header-title">Session Recording & Audit Compliance</div>
+                  <div class="card-header-desc">Record remote support sessions for security compliance and accountability.</div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row-info">
@@ -832,6 +822,25 @@
         <div class="modal-footer settings-dialog-footer">
           <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
           <button class="btn btn-primary" id="saveSettingsBtn">Save & Apply Preferences</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Fluent Dialog Modal (Alerts & Confirmations) -->
+    <div class="modal-backdrop app-dialog-backdrop" id="appDialogModal" style="display: none;">
+      <div class="modal app-dialog-modal">
+        <div class="dialog-body-layout">
+          <div class="dialog-icon-ring" id="dialogIconRing">
+            <svg id="dialogIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+          </div>
+          <div class="dialog-text-content">
+            <h3 id="dialogTitle">Notice</h3>
+            <p id="dialogMessage">Notification message</p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" id="dialogCancelBtn" style="display: none;">Cancel</button>
+          <button class="btn btn-primary" id="dialogConfirmBtn">OK</button>
         </div>
       </div>
     </div>

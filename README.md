@@ -1,6 +1,6 @@
 # PrimeDesk 
 
-> **Enterprise-Grade WebRTC Remote Desktop Support Suite for Hospital EHR Systems**  
+> **Enterprise-Grade WebRTC Remote Desktop Support Suite**  
 > *100% Free Forever • Zero Subscriptions • Zero Commercial Paywalls or Time Limits*
 
 [![Build Windows Binaries](https://github.com/basliel26/PrimeDesk/actions/workflows/build.yml/badge.svg)](https://github.com/basliel26/PrimeDesk/actions/workflows/build.yml)
@@ -11,7 +11,7 @@
 
 ## ⚡ Overview
 
-**PrimeDesk** is an open-source, peer-to-peer remote desktop application engineered to replace commercial tools like AnyDesk and TeamViewer. Designed specifically for software vendors supporting hospital Electronic Health Record (EHR) systems and remote medical clinics, it provides instant, low-latency remote control without monthly licensing fees, foreign exchange constraints, or countdown nag screens.
+**PrimeDesk** is an open-source, peer-to-peer remote desktop application engineered to replace commercial tools like AnyDesk and TeamViewer. Designed for technical support teams and remote workstations, it provides instant, low-latency remote control without monthly licensing fees, foreign exchange constraints, or countdown nag screens.
 
 ---
 
@@ -19,10 +19,10 @@
 
 Pre-compiled standalone Windows executables are automatically generated and published directly on GitHub Releases:
 
-📦 **[Download Latest PrimeDesk Release (v1.0.0)](https://github.com/basliel26/PrimeDesk/releases/latest)**
+📦 **[Download Latest PrimeDesk Release (v1.0.2)](https://github.com/basliel26/PrimeDesk/releases/latest)**
 
-- **`PrimeDesk-Setup-1.0.0.exe`**: Full Windows installer with desktop shortcut, start menu entry, and auto-start integration.
-- **`PrimeDesk-Portable-1.0.0.exe`**: Zero-installation single executable. Runs instantly from a USB flash drive or any folder.
+- **`PrimeDesk-Setup.exe`**: Full Windows installer with desktop shortcut, start menu entry, and auto-start integration.
+- **`PrimeDesk-Portable.exe`**: Zero-installation single executable. Runs instantly from a USB flash drive or any folder.
 
 ---
 
@@ -30,16 +30,16 @@ Pre-compiled standalone Windows executables are automatically generated and publ
 
 | Category | Capability | Details |
 | :--- | :--- | :--- |
-| **Workflow** | **AnyDesk Connection Workflow** | Terminals stay auto-ready on launch. Technicians dial the 6-digit address, and hospital staff get an instant **Accept / Decline** prompt with safety checklist. |
+| **Workflow** | **AnyDesk Connection Workflow** | Terminals stay auto-ready on launch. Technicians dial the 6-digit address, and remote users get an instant **Accept / Decline** prompt with safety checklist. |
 | **Access** | **Unattended Server Mode** | Cryptographically salted SHA-256 password authentication allows after-hours server maintenance without local staff interaction. |
-| **Directory** | **Hospital Address Book** | Save client clinics and hospital workstations with custom labels and credentials for instant one-click connection. |
+| **Directory** | **Device Directory** | Save client workstations and servers with custom labels and credentials for instant one-click connection. |
 | **Input** | **Sub-Millisecond Native Input** | Ultra-fast native C# worker (`PrimeInput.exe`) utilizing Windows `user32.dll` (`SendInput`, `mouse_event`, `SetCursorPos`, `LockWorkStation`). |
-| **Privacy** | **Patient Privacy Mode** | Technician can toggle a full-screen blackout overlay on the physical hospital monitor to protect confidential patient health records during maintenance. |
+| **Privacy** | **Privacy Mode** | Technician can toggle a full-screen blackout overlay on the physical remote monitor to protect confidential data during maintenance. |
 | **Shortcuts** | **Windows System Actions** | One-click triggers for `Ctrl+Shift+Esc` (Task Manager), `Win+D` (Show Desktop), and `Win+L` (Lock Workstation). |
-| **Data Sync** | **Bidirectional Clipboard & Files** | Real-time clipboard synchronization and direct WebRTC chunked file transfers (updates, database patches, logs). |
+| **Data Sync** | **Bidirectional Clipboard & Files** | Real-time clipboard synchronization and direct WebRTC chunked file transfers (updates, software patches, logs). |
 | **Communication** | **Built-in Support Chat** | Slide-out support drawer with unread message badges and sound notifications. |
-| **Networking** | **Offline LAN & Proxy Engine** | Operates across isolated hospital Wi-Fi networks with **zero internet**. Supports institutional HTTP/SOCKS5 proxies (Squid). |
-| **Compliance** | **Session Recording & Auto-Lock** | Automatically records sessions to `.webm` video for HIPAA/EHR auditing and auto-locks Windows when sessions disconnect. |
+| **Networking** | **Offline LAN & Proxy Engine** | Operates across isolated local Wi-Fi or Ethernet networks with **zero internet**. Supports institutional HTTP/SOCKS5 proxies (Squid). |
+| **Compliance** | **Session Recording & Auto-Lock** | Automatically records sessions to `.webm` video for security auditing and auto-locks Windows when sessions disconnect. |
 
 ---
 
@@ -47,7 +47,7 @@ Pre-compiled standalone Windows executables are automatically generated and publ
 
 ```mermaid
 flowchart LR
-    subgraph Hospital ["Hospital Workstation (Host)"]
+    subgraph Host ["Remote Workstation (Host)"]
         H_UI["PrimeDesk UI"]
         H_Cap["Electron Desktop Capturer (DXGI Duplication)"]
         H_Input["Native C# Worker (PrimeInput.exe)"]
@@ -58,7 +58,7 @@ flowchart LR
         Sig["PrimeDesk WebSocket Server (:9000 / Cloud)"]
     end
 
-    subgraph Vendor ["EHR Support Technician (Viewer)"]
+    subgraph Vendor ["Support Technician (Viewer)"]
         V_UI["PrimeDesk Remote Viewport"]
         V_Input["Input Tracking & Resolution Scaling"]
         V_Rec["MediaRecorder Audit Capture"]
@@ -78,9 +78,9 @@ flowchart LR
 PrimeDesk features a Windows 11 Fluent preferences interface organized into 7 domains:
 
 1. **General & System**: Startup with Windows registry hook, minimize to notification tray, system sleep prevention.
-2. **Network & Proxy**: Cloud Internet vs Hospital LAN mode, 1-click LAN IP auto-detection, institutional HTTP/SOCKS5 proxy configuration (Squid).
+2. **Network & Proxy**: Cloud Internet vs Offline mode, automatic endpoint resolution, institutional HTTP/SOCKS5 proxy configuration (Squid).
 3. **Display & Streaming**: Target framerate (`60 FPS`, `30 FPS`, `15 FPS`), latency vs sharpness profiles, DirectX DXGI hardware capture.
-4. **Audio & Media**: Remote audio capture (EHR beeps and alarms), physical host speaker muting.
+4. **Audio & Media**: Remote audio capture, physical host speaker muting.
 5. **Security & Access**: Unattended master password, operator permission checklist, Auto-Lock on Disconnect.
 6. **Session Recording & Audit**: Automatic WebM video recording, native Windows folder selector, connection audit logs.
 7. **About & Diagnostics**: Architecture specifications, WebRTC encryption verification, MIT license.

@@ -104,7 +104,7 @@ ipcMain.handle('write-clipboard', (event, text) => {
   return true;
 });
 
-// Window mode switching for Hospital floating pill
+// Window mode switching for remote session floating pill
 ipcMain.handle('set-pill-mode', () => {
   if (!mainWindow) return;
   const primary = screen.getPrimaryDisplay();
@@ -153,9 +153,9 @@ ipcMain.handle('set-privacy-mode', (event, enabled) => {
       privacyWindow.loadURL(`data:text/html;charset=utf-8,
         <html>
           <body style="background:#000;color:#38bdf8;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;">
-            <h1 style="font-size:2rem;margin-bottom:8px;">🔒 Hospital EHR Maintenance Active</h1>
-            <p style="font-size:1.1rem;color:#94a3b8;">Patient health records protected under Privacy Mode.</p>
-            <p style="font-size:0.85rem;color:#64748b;margin-top:16px;">Remote session in progress by authorized IT support.</p>
+            <h1 style="font-size:2rem;margin-bottom:8px;">🔒 Remote Maintenance Active</h1>
+            <p style="font-size:1.1rem;color:#94a3b8;">Screen control is active by authorized technical support.</p>
+            <p style="font-size:0.85rem;color:#64748b;margin-top:16px;">Confidential data protected under Privacy Mode.</p>
           </body>
         </html>
       `);
@@ -187,13 +187,15 @@ ipcMain.handle('close-window', () => {
 // Proxy Management
 ipcMain.handle('set-network-proxy', async (event, config) => {
   try {
-    if (!config || config.mode === 'direct') {
-      await session.defaultSession.setProxy({ mode: 'direct' });
+    if (!config || config.mode === 'system') {
+      await session.defaultSession.setProxy({ mode: 'system' });
     } else if (config.mode === 'manual' && config.rules) {
       await session.defaultSession.setProxy({
         proxyRules: config.rules,
         proxyBypassRules: '<local>;127.0.0.1;localhost'
       });
+    } else if (config.mode === 'direct') {
+      await session.defaultSession.setProxy({ mode: 'direct' });
     } else {
       await session.defaultSession.setProxy({ mode: 'system' });
     }

@@ -34,7 +34,7 @@ class PrimeDeskApp {
 
     this.serverMode = localStorage.getItem('primedesk_server_mode') || 'cloud';
     const savedUrl = localStorage.getItem('primedesk_signaling_url');
-    if (!savedUrl || savedUrl === 'ws://localhost:9000') {
+    if (!savedUrl || savedUrl === 'ws://localhost:9000' && this.serverMode === 'cloud' || !savedUrl.startsWith('ws')) {
       this.signalingUrl = DEFAULT_CLOUD_SIGNALING_URL;
       localStorage.setItem('primedesk_signaling_url', this.signalingUrl);
     } else {
@@ -42,7 +42,12 @@ class PrimeDeskApp {
     }
     this.stunServer = localStorage.getItem('primedesk_stun_server') || 'stun:stun.l.google.com:19302';
 
-    this.proxyMode = localStorage.getItem('primedesk_proxy_mode') || 'direct';
+    let savedProxyMode = localStorage.getItem('primedesk_proxy_mode');
+    if (!savedProxyMode || savedProxyMode === 'direct') {
+      savedProxyMode = 'system';
+      localStorage.setItem('primedesk_proxy_mode', 'system');
+    }
+    this.proxyMode = savedProxyMode;
     this.proxyServer = localStorage.getItem('primedesk_proxy_server') || '';
     this.proxyBypass = localStorage.getItem('primedesk_proxy_bypass') || '<local>;127.0.0.1;localhost';
 
@@ -203,6 +208,87 @@ class PrimeDeskApp {
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  getDialogIconSvg(type) {
+    switch (type) {
+      case 'warning':
+        return '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>';
+      case 'error':
+        return '<circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>';
+      case 'success':
+        return '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>';
+      case 'info':
+      default:
+        return '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>';
+    }
+  }
+
+  showCustomAlert(title, message, type = 'info') {
+    return new Promise((resolve) => {
+      if (!this.dom || !this.dom.appDialogModal) {
+        alert(`${title}\n\n${message}`);
+        resolve(true);
+        return;
+      }
+      this.dom.dialogTitle.textContent = title;
+      this.dom.dialogMessage.textContent = message;
+      this.dom.dialogIconRing.className = `dialog-icon-ring ${type}`;
+      this.dom.dialogIcon.innerHTML = this.getDialogIconSvg(type);
+      this.dom.dialogCancelBtn.style.display = 'none';
+      this.dom.dialogConfirmBtn.textContent = 'OK';
+      this.dom.dialogConfirmBtn.className = 'btn btn-primary';
+      this.dom.appDialogModal.style.display = 'flex';
+
+      const cleanup = () => {
+        this.dom.dialogConfirmBtn.removeEventListener('click', onConfirm);
+        this.dom.appDialogModal.style.display = 'none';
+      };
+
+      const onConfirm = () => {
+        cleanup();
+        resolve(true);
+      };
+
+      this.dom.dialogConfirmBtn.addEventListener('click', onConfirm);
+    });
+  }
+
+  showCustomConfirm(title, message, type = 'warning') {
+    return new Promise((resolve) => {
+      if (!this.dom || !this.dom.appDialogModal) {
+        const res = confirm(`${title}\n\n${message}`);
+        resolve(res);
+        return;
+      }
+      this.dom.dialogTitle.textContent = title;
+      this.dom.dialogMessage.textContent = message;
+      this.dom.dialogIconRing.className = `dialog-icon-ring ${type}`;
+      this.dom.dialogIcon.innerHTML = this.getDialogIconSvg(type);
+      this.dom.dialogCancelBtn.style.display = 'inline-block';
+      this.dom.dialogConfirmBtn.textContent = 'Confirm';
+      this.dom.dialogConfirmBtn.className = (type === 'error' || type === 'warning') ? 'btn btn-danger' : 'btn btn-primary';
+      this.dom.appDialogModal.style.display = 'flex';
+
+      const cleanup = () => {
+        this.dom.dialogConfirmBtn.removeEventListener('click', onConfirm);
+        this.dom.dialogCancelBtn.removeEventListener('click', onCancel);
+        this.dom.appDialogModal.style.display = 'none';
+      };
+
+      const onConfirm = () => {
+        cleanup();
+        resolve(true);
+      };
+
+      const onCancel = () => {
+        cleanup();
+        resolve(false);
+      };
+
+      this.dom.dialogConfirmBtn.addEventListener('click', onConfirm);
+      this.dom.dialogCancelBtn.addEventListener('click', onCancel);
+    });
+  }
+
   initDOMElements() {
     this.dom = {
       appContainer: document.getElementById('appContainer'),
@@ -217,6 +303,15 @@ class PrimeDeskApp {
       signalingUrlInput: document.getElementById('signalingUrlInput'),
       settingsNavItems: document.querySelectorAll('.settings-nav-item'),
       settingsSections: document.querySelectorAll('.settings-section'),
+
+      // Custom Application Dialog
+      appDialogModal: document.getElementById('appDialogModal'),
+      dialogIconRing: document.getElementById('dialogIconRing'),
+      dialogIcon: document.getElementById('dialogIcon'),
+      dialogTitle: document.getElementById('dialogTitle'),
+      dialogMessage: document.getElementById('dialogMessage'),
+      dialogConfirmBtn: document.getElementById('dialogConfirmBtn'),
+      dialogCancelBtn: document.getElementById('dialogCancelBtn'),
 
       // Enterprise General
       autoStartToggle: document.getElementById('autoStartToggle'),
@@ -278,16 +373,16 @@ class PrimeDeskApp {
       connectBtn: document.getElementById('connectBtn'),
 
       // Address Book DOM
-      addHospitalBtn: document.getElementById('addHospitalBtn'),
-      hospitalCardsGrid: document.getElementById('hospitalCardsGrid'),
+      addWorkstationBtn: document.getElementById('addWorkstationBtn'),
+      workstationCardsGrid: document.getElementById('workstationCardsGrid'),
       emptyAddressBook: document.getElementById('emptyAddressBook'),
-      addHospitalModal: document.getElementById('addHospitalModal'),
-      closeAddHospitalBtn: document.getElementById('closeAddHospitalBtn'),
-      cancelAddHospitalBtn: document.getElementById('cancelAddHospitalBtn'),
-      saveHospitalBtn: document.getElementById('saveHospitalBtn'),
-      hospitalNameInput: document.getElementById('hospitalNameInput'),
-      hospitalCodeInput: document.getElementById('hospitalCodeInput'),
-      hospitalPasswordInput: document.getElementById('hospitalPasswordInput'),
+      addWorkstationModal: document.getElementById('addWorkstationModal'),
+      closeAddWorkstationBtn: document.getElementById('closeAddWorkstationBtn'),
+      cancelAddWorkstationBtn: document.getElementById('cancelAddWorkstationBtn'),
+      saveWorkstationBtn: document.getElementById('saveWorkstationBtn'),
+      workstationNameInput: document.getElementById('workstationNameInput'),
+      workstationCodeInput: document.getElementById('workstationCodeInput'),
+      workstationPasswordInput: document.getElementById('workstationPasswordInput'),
 
       // Incoming Request Modal
       incomingModal: document.getElementById('incomingModal'),
@@ -433,12 +528,12 @@ class PrimeDeskApp {
     this.dom.saveUnattendedPassBtn.addEventListener('click', async () => {
       const pass = this.dom.unattendedPasswordInput.value.trim();
       if (!pass) {
-        alert('Please enter an unattended master password.');
+        await this.showCustomAlert('Input Required', 'Please enter an unattended master password.', 'warning');
         return;
       }
       this.unattendedPassHash = await this.hashPassword(pass);
       localStorage.setItem('primedesk_unattended_hash', this.unattendedPassHash);
-      alert('Unattended access password saved.');
+      await this.showCustomAlert('Password Saved', 'Unattended access master password has been securely saved.', 'success');
       this.dom.unattendedPasswordInput.value = '';
       this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
     });
@@ -464,18 +559,18 @@ class PrimeDeskApp {
     this.dom.declineBtn.addEventListener('click', () => {
       this.dom.incomingModal.style.display = 'none';
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'decline-connection', reason: 'Declined by hospital operator' }));
+        this.ws.send(JSON.stringify({ type: 'decline-connection', reason: 'Declined by remote operator' }));
       }
     });
 
-    // Hospital Floating Pill Stop
+    // Floating Pill Stop
     this.dom.pillStopBtn.addEventListener('click', () => this.stopHosting());
 
     // Connect Button
-    this.dom.connectBtn.addEventListener('click', () => {
+    this.dom.connectBtn.addEventListener('click', async () => {
       const code = this.dom.remoteCodeInput.value.replace(/\D/g, '');
       if (code.length !== 6) {
-        alert('Please enter a valid 6-digit terminal address.');
+        await this.showCustomAlert('Invalid Address', 'Please enter a valid 6-digit terminal address (e.g. 582-914).', 'warning');
         return;
       }
       this.requestConnection(code);
@@ -510,9 +605,6 @@ class PrimeDeskApp {
           this.dom.stunInput.disabled = false;
           this.dom.stunInput.style.opacity = '1';
         }
-        if (this.dom.signalingUrlInput && (this.dom.signalingUrlInput.value.includes('localhost') || this.dom.signalingUrlInput.value.includes('192.168.'))) {
-          this.dom.signalingUrlInput.value = DEFAULT_CLOUD_SIGNALING_URL;
-        }
       });
     }
 
@@ -521,40 +613,6 @@ class PrimeDeskApp {
         if (this.dom.stunInput) {
           this.dom.stunInput.disabled = true;
           this.dom.stunInput.style.opacity = '0.5';
-        }
-        if (this.dom.signalingUrlInput && this.dom.signalingUrlInput.value.includes('onrender.com')) {
-          this.dom.signalingUrlInput.value = 'ws://localhost:9000';
-        }
-      });
-    }
-
-    // Detect LAN IP Button
-    if (this.dom.detectLocalIpBtn) {
-      this.dom.detectLocalIpBtn.addEventListener('click', async () => {
-        if (!window.primeDeskAPI || !window.primeDeskAPI.getLocalIPs) {
-          alert('Local IP detection is only available in the PrimeDesk desktop environment.');
-          return;
-        }
-        try {
-          const originalText = this.dom.detectLocalIpBtn.textContent;
-          this.dom.detectLocalIpBtn.textContent = 'Detecting...';
-          const ifaces = await window.primeDeskAPI.getLocalIPs();
-          if (ifaces && ifaces.length > 0) {
-            const preferred = ifaces.find(i => /wi-fi|wlan|ethernet/i.test(i.name)) || ifaces[0];
-            this.dom.signalingUrlInput.value = `ws://${preferred.address}:9000`;
-            this.dom.detectLocalIpBtn.textContent = `Found: ${preferred.address}`;
-            setTimeout(() => {
-              this.dom.detectLocalIpBtn.textContent = originalText;
-            }, 3000);
-          } else {
-            this.dom.detectLocalIpBtn.textContent = 'No LAN adapter found';
-            setTimeout(() => {
-              this.dom.detectLocalIpBtn.textContent = originalText;
-            }, 3000);
-          }
-        } catch (err) {
-          console.error('Failed to detect LAN IPs:', err);
-          this.dom.detectLocalIpBtn.textContent = 'Detection failed';
         }
       });
     }
@@ -590,7 +648,7 @@ class PrimeDeskApp {
       this.dom.saveUnattendedPassSettingsBtn.addEventListener('click', async () => {
         const pass = this.dom.unattendedPasswordInputSettings.value.trim();
         if (!pass) {
-          alert('Please enter an unattended master password.');
+          await this.showCustomAlert('Input Required', 'Please enter an unattended master password.', 'warning');
           return;
         }
         this.unattendedPassHash = await this.hashPassword(pass);
@@ -600,6 +658,7 @@ class PrimeDeskApp {
         this.dom.unattendedPasswordInputSettings.value = '';
         this.dom.unattendedPasswordInputSettings.placeholder = '•••••• (Password active)';
         this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
+        await this.showCustomAlert('Password Saved', 'Unattended access master password has been securely saved.', 'success');
       });
     }
 
@@ -636,10 +695,10 @@ class PrimeDeskApp {
       this.closeAction = this.dom.closeActionSelect ? this.dom.closeActionSelect.value : this.closeAction;
       this.preventSleep = this.dom.preventSleepToggle ? this.dom.preventSleepToggle.checked : this.preventSleep;
 
-      // Network & Proxy
-      const newUrl = this.dom.signalingUrlInput ? (this.dom.signalingUrlInput.value.trim() || DEFAULT_CLOUD_SIGNALING_URL) : this.signalingUrl;
-      const newStun = this.dom.stunInput ? (this.dom.stunInput.value.trim() || 'stun:stun.l.google.com:19302') : this.stunServer;
+      // Network & Proxy (Auto-configured based on mode)
       const newMode = (this.dom.modeLan && this.dom.modeLan.checked) ? 'lan' : 'cloud';
+      const newUrl = (newMode === 'cloud') ? DEFAULT_CLOUD_SIGNALING_URL : 'ws://localhost:9000';
+      const newStun = this.dom.stunInput ? (this.dom.stunInput.value.trim() || 'stun:stun.l.google.com:19302') : this.stunServer;
       this.proxyMode = this.dom.proxyModeSelect ? this.dom.proxyModeSelect.value : this.proxyMode;
       this.proxyServer = this.dom.proxyServerInput ? this.dom.proxyServerInput.value.trim() : this.proxyServer;
       this.proxyBypass = this.dom.proxyBypassInput ? this.dom.proxyBypassInput.value.trim() : this.proxyBypass;
@@ -665,7 +724,7 @@ class PrimeDeskApp {
       this.recordingDir = this.dom.recordingDirInput ? this.dom.recordingDirInput.value.trim() : this.recordingDir;
       this.auditLog = this.dom.auditLogToggle ? this.dom.auditLogToggle.checked : this.auditLog;
 
-      const urlChanged = (this.signalingUrl !== newUrl);
+      const urlChanged = (this.signalingUrl !== newUrl || this.serverMode !== newMode);
       this.signalingUrl = newUrl;
       this.stunServer = newStun;
       this.serverMode = newMode;
@@ -713,22 +772,22 @@ class PrimeDeskApp {
     });
 
     // Address Book Modal
-    this.dom.addHospitalBtn.addEventListener('click', () => {
-      this.dom.addHospitalModal.style.display = 'flex';
+    this.dom.addWorkstationBtn.addEventListener('click', () => {
+      this.dom.addWorkstationModal.style.display = 'flex';
     });
-    this.dom.closeAddHospitalBtn.addEventListener('click', () => {
-      this.dom.addHospitalModal.style.display = 'none';
+    this.dom.closeAddWorkstationBtn.addEventListener('click', () => {
+      this.dom.addWorkstationModal.style.display = 'none';
     });
-    this.dom.cancelAddHospitalBtn.addEventListener('click', () => {
-      this.dom.addHospitalModal.style.display = 'none';
+    this.dom.cancelAddWorkstationBtn.addEventListener('click', () => {
+      this.dom.addWorkstationModal.style.display = 'none';
     });
-    this.dom.saveHospitalBtn.addEventListener('click', async () => {
-      const name = this.dom.hospitalNameInput.value.trim();
-      const code = this.dom.hospitalCodeInput.value.replace(/\D/g, '');
-      const pass = this.dom.hospitalPasswordInput.value.trim();
+    this.dom.saveWorkstationBtn.addEventListener('click', async () => {
+      const name = this.dom.workstationNameInput.value.trim();
+      const code = this.dom.workstationCodeInput.value.replace(/\D/g, '');
+      const pass = this.dom.workstationPasswordInput.value.trim();
 
       if (!name || code.length !== 6) {
-        alert('Please specify a valid workstation name and 6-digit address.');
+        await this.showCustomAlert('Validation Error', 'Please specify a valid workstation name and 6-digit terminal address.', 'warning');
         return;
       }
 
@@ -742,10 +801,11 @@ class PrimeDeskApp {
       localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
       this.renderAddressBook();
 
-      this.dom.hospitalNameInput.value = '';
-      this.dom.hospitalCodeInput.value = '';
-      this.dom.hospitalPasswordInput.value = '';
-      this.dom.addHospitalModal.style.display = 'none';
+      this.dom.workstationNameInput.value = '';
+      this.dom.workstationCodeInput.value = '';
+      this.dom.workstationPasswordInput.value = '';
+      this.dom.addWorkstationModal.style.display = 'none';
+      await this.showCustomAlert('Workstation Added', `Workstation "${name}" has been registered in your directory.`, 'success');
     });
 
     // Unattended Password Prompt Modal
@@ -846,7 +906,7 @@ class PrimeDeskApp {
 
   renderAddressBook() {
     this.dom.addressBookCount.textContent = this.addressBook.length;
-    this.dom.hospitalCardsGrid.innerHTML = '';
+    this.dom.workstationCardsGrid.innerHTML = '';
 
     if (this.addressBook.length === 0) {
       this.dom.emptyAddressBook.style.display = 'block';
@@ -856,28 +916,28 @@ class PrimeDeskApp {
     this.dom.emptyAddressBook.style.display = 'none';
     this.addressBook.forEach(h => {
       const card = document.createElement('div');
-      card.className = 'hospital-card';
+      card.className = 'workstation-card';
       card.innerHTML = `
-        <div class="hospital-card-top">
+        <div class="workstation-card-top">
           <div>
-            <div class="hospital-card-title">${h.name}</div>
-            <div class="hospital-card-code">${this.formatCode(h.code)}</div>
+            <div class="workstation-card-title">${h.name}</div>
+            <div class="workstation-card-code">${this.formatCode(h.code)}</div>
           </div>
-          <span class="hospital-card-badge">${h.password ? 'Unattended' : 'Interactive'}</span>
+          <span class="workstation-card-badge">${h.password ? 'Unattended' : 'Interactive'}</span>
         </div>
-        <div class="hospital-card-actions">
-          <button class="btn btn-connect connect-hospital-btn" data-code="${h.code}" data-pass="${h.password}">
+        <div class="workstation-card-actions">
+          <button class="btn btn-connect connect-workstation-btn" data-code="${h.code}" data-pass="${h.password}">
             Connect
           </button>
-          <button class="btn-delete-hospital delete-hospital-btn" data-id="${h.id}" title="Remove Workstation">
+          <button class="btn-delete-workstation delete-workstation-btn" data-id="${h.id}" title="Remove Workstation">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
           </button>
         </div>
       `;
-      this.dom.hospitalCardsGrid.appendChild(card);
+      this.dom.workstationCardsGrid.appendChild(card);
     });
 
-    document.querySelectorAll('.connect-hospital-btn').forEach(btn => {
+    document.querySelectorAll('.connect-workstation-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const code = e.currentTarget.getAttribute('data-code');
         const savedPass = e.currentTarget.getAttribute('data-pass');
@@ -885,12 +945,21 @@ class PrimeDeskApp {
       });
     });
 
-    document.querySelectorAll('.delete-hospital-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+    document.querySelectorAll('.delete-workstation-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
         const id = parseInt(e.currentTarget.getAttribute('data-id'));
-        this.addressBook = this.addressBook.filter(item => item.id !== id);
-        localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
-        this.renderAddressBook();
+        const target = this.addressBook.find(item => item.id === id);
+        const name = target ? target.name : 'this workstation';
+        const ok = await this.showCustomConfirm(
+          'Delete Workstation',
+          `Are you sure you want to remove "${name}" from your directory?`,
+          'warning'
+        );
+        if (ok) {
+          this.addressBook = this.addressBook.filter(item => item.id !== id);
+          localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
+          this.renderAddressBook();
+        }
       });
     });
   }
@@ -962,18 +1031,18 @@ class PrimeDeskApp {
           this.sendSignal({ type: 'auth-required' });
         } else {
           // Show the AnyDesk-style incoming accept/decline prompt!
-          this.dom.incomingCallerText.textContent = `${msg.clientName || 'EHR Support Technician'} is requesting remote control.`;
+          this.dom.incomingCallerText.textContent = `${msg.clientName || 'Support Technician'} is requesting remote control.`;
           this.dom.incomingModal.style.display = 'flex';
         }
         break;
 
       case 'connection-accepted':
-        console.log('[Viewer] Hospital accepted connection. Initializing peer...');
+        console.log('[Viewer] Remote device accepted connection. Initializing peer...');
         this.startViewerPeer();
         break;
 
       case 'connection-declined':
-        alert(`Session rejected: ${msg.reason || 'Declined by remote hospital'}`);
+        this.showCustomAlert('Connection Rejected', `Session declined: ${msg.reason || 'Declined by remote user'}`, 'warning');
         this.endSession();
         break;
 
@@ -982,12 +1051,12 @@ class PrimeDeskApp {
         break;
 
       case 'session-ended':
-        alert(`Session ended: ${msg.reason || 'Disconnected'}`);
+        this.showCustomAlert('Session Concluded', `Remote session ended: ${msg.reason || 'Disconnected'}`, 'info');
         this.endSession();
         break;
 
       case 'error':
-        alert(msg.message);
+        this.showCustomAlert('Signaling Notice', msg.message, 'warning');
         break;
     }
   }
@@ -1065,7 +1134,7 @@ class PrimeDeskApp {
 
     } catch (err) {
       console.error('[Host] Failed to initialize stream:', err);
-      alert('Could not start screen capture: ' + err.message);
+      await this.showCustomAlert('Screen Capture Error', 'Could not start screen capture: ' + err.message, 'error');
       this.stopHosting();
     }
   }
@@ -1225,7 +1294,7 @@ class PrimeDeskApp {
   }
 
   // VIEWER INITIATION
-  requestConnection(code, savedPass = null) {
+  async requestConnection(code, savedPass = null) {
     this.role = 'viewer';
     this.pendingConnectCode = code;
     this.savedPass = savedPass;
@@ -1234,10 +1303,18 @@ class PrimeDeskApp {
       this.ws.send(JSON.stringify({
         type: 'request-connect',
         code,
-        clientName: 'EHR Support Technician'
+        clientName: 'Support Technician'
       }));
     } else {
-      alert('Signaling server is not connected!');
+      const isCloud = this.signalingUrl.includes('onrender.com') || this.serverMode === 'cloud';
+      this.connectSignaling();
+      await this.showCustomAlert(
+        'Connecting to Cloud Server',
+        isCloud
+          ? 'Connecting to the secure cloud signaling cluster (primedesk-signal.onrender.com). If the cloud service is waking up, this may take a few moments. Please wait a few seconds and try again.'
+          : 'Connecting to local offline signaling service. Please ensure the local signaling service is running and try again.',
+        'warning'
+      );
     }
   }
 
@@ -1321,7 +1398,7 @@ class PrimeDeskApp {
         }
         this.initiateHostStream();
       } else {
-        alert('Invalid unattended access password.');
+        await this.showCustomAlert('Authentication Denied', 'Invalid unattended access password. Connection rejected.', 'error');
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'decline-connection', reason: 'Invalid unattended password' }));
         }
@@ -1448,7 +1525,7 @@ class PrimeDeskApp {
 
   async sendFile(file) {
     if (!this.fileChannel || this.fileChannel.readyState !== 'open') {
-      alert('File channel is not open. Connect to hospital first.');
+      await this.showCustomAlert('Channel Closed', 'File channel is not open. Connect to a remote device first.', 'warning');
       return;
     }
 

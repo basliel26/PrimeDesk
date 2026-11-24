@@ -33,7 +33,7 @@ wss.on('connection', (ws) => {
           const room = rooms.get(targetCode);
 
           if (!room || !room.hostWs || room.hostWs.readyState !== WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'error', message: 'Hospital terminal not found or offline.' }));
+            ws.send(JSON.stringify({ type: 'error', message: 'Remote device not found or offline.' }));
             return;
           }
 
@@ -49,7 +49,7 @@ wss.on('connection', (ws) => {
           // Forward connection request to host
           room.hostWs.send(JSON.stringify({
             type: 'incoming-connection',
-            clientName: msg.clientName || 'EHR Support Technician',
+            clientName: msg.clientName || 'Support Technician',
             unattendedPass: msg.unattendedPass || null
           }));
           console.log(`[Signaling] Connection request sent to terminal: ${targetCode}`);
@@ -67,7 +67,7 @@ wss.on('connection', (ws) => {
         case 'decline-connection': {
           const room = rooms.get(userCode);
           if (room && room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
-            room.viewerWs.send(JSON.stringify({ type: 'connection-declined', reason: msg.reason || 'Declined by remote hospital' }));
+            room.viewerWs.send(JSON.stringify({ type: 'connection-declined', reason: msg.reason || 'Declined by remote user' }));
             room.viewerWs = null;
           }
           break;
@@ -99,16 +99,16 @@ wss.on('connection', (ws) => {
       const room = rooms.get(userCode);
       if (userRole === 'host') {
         if (room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
-          room.viewerWs.send(JSON.stringify({ type: 'session-ended', reason: 'Hospital terminal disconnected' }));
+          room.viewerWs.send(JSON.stringify({ type: 'session-ended', reason: 'Remote device disconnected' }));
         }
         rooms.delete(userCode);
         console.log(`[Signaling] Terminal offline: ${userCode}`);
       } else if (userRole === 'viewer') {
         if (room.hostWs && room.hostWs.readyState === WebSocket.OPEN) {
-          room.hostWs.send(JSON.stringify({ type: 'session-ended', reason: 'Technician disconnected' }));
+          room.hostWs.send(JSON.stringify({ type: 'session-ended', reason: 'Support technician disconnected' }));
         }
         room.viewerWs = null;
-        console.log(`[Signaling] Technician disconnected from: ${userCode}`);
+        console.log(`[Signaling] Support technician disconnected from: ${userCode}`);
       }
     }
   };
