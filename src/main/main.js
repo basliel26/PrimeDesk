@@ -3,13 +3,14 @@ const path = require('path');
 const inputHandler = require('./inputHandler');
 
 let mainWindow = null;
+let normalBounds = { width: 1000, height: 680 };
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 680,
-    minWidth: 850,
-    minHeight: 580,
+    width: normalBounds.width,
+    height: normalBounds.height,
+    minWidth: 320,
+    minHeight: 64,
     icon: path.join(__dirname, '..', '..', 'assets', 'primedesk.ico'),
     backgroundColor: '#0f172a',
     frame: true,
@@ -69,6 +70,35 @@ ipcMain.handle('stop-input-worker', () => {
 
 ipcMain.handle('send-input', (event, command) => {
   inputHandler.send(command);
+  return true;
+});
+
+// Window mode switching for Hospital floating pill
+ipcMain.handle('set-pill-mode', () => {
+  if (!mainWindow) return;
+  const primary = screen.getPrimaryDisplay();
+  const pillWidth = 360;
+  const pillHeight = 74;
+  const margin = 20;
+
+  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  mainWindow.setBounds({
+    x: primary.workArea.width - pillWidth - margin,
+    y: margin,
+    width: pillWidth,
+    height: pillHeight
+  });
+  return true;
+});
+
+ipcMain.handle('restore-normal-mode', () => {
+  if (!mainWindow) return;
+  mainWindow.setAlwaysOnTop(false);
+  mainWindow.setBounds({
+    width: normalBounds.width,
+    height: normalBounds.height
+  });
+  mainWindow.center();
   return true;
 });
 

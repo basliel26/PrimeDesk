@@ -7,9 +7,10 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <div class="app-container">
-    <!-- Navigation / Header -->
-    <header class="app-header">
+  <div class="app-container" id="appContainer">
+
+    <!-- Normal Header (hidden when in floating pill mode) -->
+    <header class="app-header" id="appHeader">
       <div class="brand">
         <div class="brand-logo">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -84,7 +85,7 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
               </svg>
-              <span>Encrypted P2P connection. You can stop remote control at any moment.</span>
+              <span>Encrypted P2P connection. Window minimizes when support starts to prevent screen mirror.</span>
             </div>
           </div>
         </div>
@@ -127,10 +128,10 @@
                 <span class="check">✓</span> Real-time mouse & keyboard control
               </div>
               <div class="feature-item">
-                <span class="check">✓</span> 60 FPS hardware-accelerated video
+                <span class="check">✓</span> Instant P2P File Transfer & Chat
               </div>
               <div class="feature-item">
-                <span class="check">✓</span> Direct P2P with zero subscription fees
+                <span class="check">✓</span> Encrypted P2P with zero subscription fees
               </div>
             </div>
           </div>
@@ -139,7 +140,26 @@
       </div>
     </main>
 
-    <!-- Remote Viewer Screen (Shown when connected to remote desktop) -->
+    <!-- Hospital Floating Pill View (Active when hospital shares screen) -->
+    <div class="floating-pill-view" id="floatingPillView" style="display: none;">
+      <div class="pill-badge">
+        <span class="pulse-indicator"></span>
+        <div class="pill-info">
+          <span class="pill-title">EHR Support Active</span>
+          <span class="pill-desc">Technician is connected</span>
+        </div>
+      </div>
+      <div class="pill-actions">
+        <button class="pill-btn" id="pillChatBtn" title="Chat with Technician">
+          💬 <span id="pillChatBadge" class="chat-badge" style="display: none;">0</span>
+        </button>
+        <button class="pill-btn pill-btn-danger" id="pillStopBtn" title="Stop Support Immediately">
+          ✕ Stop
+        </button>
+      </div>
+    </div>
+
+    <!-- Remote Viewer Screen (Shown on Vendor computer) -->
     <div class="remote-viewport-container" id="remoteViewport" style="display: none;">
       <div class="viewport-toolbar">
         <div class="toolbar-left">
@@ -147,13 +167,51 @@
           <span class="toolbar-title" id="remoteSessionTitle">Connected to Hospital</span>
           <span class="stat-pill" id="remoteStats">0 ms | 60 FPS</span>
         </div>
+
         <div class="toolbar-actions">
-          <button class="tool-btn" id="fullscreenBtn" title="Toggle Fullscreen">⛶ Fullscreen</button>
+          <button class="tool-btn" id="fitScreenBtn" title="Fit to Window">⛶ Fit</button>
+          <button class="tool-btn" id="transferFileBtn" title="Send File to Hospital">📁 Send File</button>
+          <button class="tool-btn" id="toggleChatBtn" title="Open Chat">
+            💬 Chat <span id="chatBadge" class="chat-badge" style="display: none;">0</span>
+          </button>
+          <button class="tool-btn" id="fullscreenBtn" title="Toggle Fullscreen">🖥️ Fullscreen</button>
           <button class="tool-btn btn-danger" id="disconnectBtn" title="End Session">✕ Disconnect</button>
         </div>
       </div>
-      <div class="video-wrapper" id="videoWrapper">
-        <video id="remoteVideo" autoplay playsinline></video>
+
+      <div class="viewport-content">
+        <div class="video-wrapper" id="videoWrapper">
+          <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+
+        <!-- Chat Drawer -->
+        <div class="chat-drawer" id="chatDrawer" style="display: none;">
+          <div class="chat-header">
+            <h3>Support Chat</h3>
+            <button class="chat-close" id="closeChatBtn">✕</button>
+          </div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-system-msg">Connected to session. Messages are peer-to-peer encrypted.</div>
+          </div>
+          <div class="chat-input-bar">
+            <input type="text" id="chatInput" placeholder="Type a message..." maxlength="300">
+            <button id="sendChatBtn">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden File Input for Transfer -->
+    <input type="file" id="filePicker" style="display: none;">
+
+    <!-- File Transfer Toast / Progress Bar -->
+    <div class="transfer-toast" id="transferToast" style="display: none;">
+      <div class="toast-header">
+        <span id="toastFileName">transferring_file.zip</span>
+        <span id="toastPercent">0%</span>
+      </div>
+      <div class="toast-progress-track">
+        <div class="toast-progress-bar" id="toastProgressBar"></div>
       </div>
     </div>
 
