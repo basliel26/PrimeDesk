@@ -27,15 +27,38 @@ class PrimeDeskApp {
     this.remoteHostResolution = { width: 1920, height: 1080 };
 
     // Enterprise Preferences State
+    this.autoStart = false;
+    this.closeAction = localStorage.getItem('primedesk_close_action') || 'tray';
+    this.preventSleep = localStorage.getItem('primedesk_prevent_sleep') !== 'false';
+
+    this.serverMode = localStorage.getItem('primedesk_server_mode') || 'cloud';
     this.signalingUrl = localStorage.getItem('primedesk_signaling_url') || 'ws://localhost:9000';
     this.stunServer = localStorage.getItem('primedesk_stun_server') || 'stun:stun.l.google.com:19302';
+
+    this.proxyMode = localStorage.getItem('primedesk_proxy_mode') || 'direct';
+    this.proxyServer = localStorage.getItem('primedesk_proxy_server') || '';
+    this.proxyBypass = localStorage.getItem('primedesk_proxy_bypass') || '<local>;127.0.0.1;localhost';
+
     this.targetFps = parseInt(localStorage.getItem('primedesk_target_fps') || '30', 10);
+    this.qualityProfile = localStorage.getItem('primedesk_quality_profile') || 'balanced';
     this.hwAccel = localStorage.getItem('primedesk_hw_accel') !== 'false';
-    this.serverMode = localStorage.getItem('primedesk_server_mode') || 'cloud';
+
+    this.audioEnabled = localStorage.getItem('primedesk_audio_enabled') !== 'false';
+    this.muteHostSpeakers = localStorage.getItem('primedesk_mute_host_speakers') === 'true';
+
     this.permControl = localStorage.getItem('primedesk_perm_control') !== 'false';
     this.permClipboard = localStorage.getItem('primedesk_perm_clipboard') !== 'false';
     this.permFile = localStorage.getItem('primedesk_perm_file') !== 'false';
     this.permPrivacy = localStorage.getItem('primedesk_perm_privacy') !== 'false';
+    this.autoLock = localStorage.getItem('primedesk_auto_lock') !== 'false';
+
+    this.autoRecord = localStorage.getItem('primedesk_auto_record') === 'true';
+    this.recordingDir = localStorage.getItem('primedesk_recording_dir') || '';
+    this.auditLog = localStorage.getItem('primedesk_audit_log') !== 'false';
+
+    // Session Recording State
+    this.mediaRecorder = null;
+    this.recordedChunks = [];
 
     // In-Session Features State
     this.unreadChatCount = 0;
@@ -57,7 +80,92 @@ class PrimeDeskApp {
     this.initDOMElements();
     this.bindEvents();
     this.renderAddressBook();
+    this.applyProxySettings();
+    this.initSystemSettings();
     this.connectSignaling();
+  }
+
+  async applyProxySettings() {
+    if (!window.primeDeskAPI || !window.primeDeskAPI.setNetworkProxy) return;
+    let rules = null;
+    if (this.proxyMode === 'manual' && this.proxyServer.trim()) {
+      rules = `http=${this.proxyServer.trim()};https=${this.proxyServer.trim()}`;
+    }
+    await window.primeDeskAPI.setNetworkProxy({
+      mode: this.proxyMode,
+      rules
+    });
+  }
+
+  async initSystemSettings() {
+    if (window.primeDeskAPI) {
+      if (window.primeDeskAPI.getAutoStart) {
+        this.autoStart = await window.primeDeskAPI.getAutoStart();
+        if (this.dom.autoStartToggle) this.dom.autoStartToggle.checked = this.autoStart;
+      }
+      if (!this.recordingDir && window.primeDeskAPI.getDefaultRecordingsDir) {
+        this.recordingDir = await window.primeDeskAPI.getDefaultRecordingsDir();
+        if (this.dom.recordingDirInput) this.dom.recordingDirInput.value = this.recordingDir;
+      }
+    }
+  }
+
+  startSessionRecording(stream) {
+    if (!stream || this.mediaRecorder) return;
+    try {
+      this.recordedChunks = [];
+      const mimeType = (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('video/webm;codecs=vp9'))
+        ? 'video/webm;codecs=vp9'
+        : 'video/webm';
+      this.mediaRecorder = new MediaRecorder(stream, { mimeType });
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) this.recordedChunks.push(e.data);
+      };
+      this.mediaRecorder.onstop = async () => {
+        if (this.recordedChunks.length === 0) return;
+        const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        const filename = `PrimeDesk_${this.role === 'host' ? 'Host' : 'Viewer'}_${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+        if (window.primeDeskAPI && window.primeDeskAPI.saveRecording) {
+          const res = await window.primeDeskAPI.saveRecording({
+            buffer: arrayBuffer,
+            filename,
+            directory: this.recordingDir
+          });
+          if (res && res.success) {
+            console.log('[Recording] Session video saved successfully:', res.path);
+          }
+        }
+        this.recordedChunks = [];
+      };
+      this.mediaRecorder.start(2000);
+      console.log('[Recording] Session recording active');
+    } catch (err) {
+      console.warn('[Recording] Unable to initialize MediaRecorder:', err);
+    }
+  }
+
+  stopSessionRecording() {
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      try { this.mediaRecorder.stop(); } catch (e) {}
+    }
+    this.mediaRecorder = null;
+  }
+
+  appendAuditLog(action, details = {}) {
+    if (!this.auditLog) return;
+    try {
+      const logs = JSON.parse(localStorage.getItem('primedesk_audit_logs') || '[]');
+      logs.push({
+        time: new Date().toISOString(),
+        action,
+        role: this.role,
+        target: this.pendingConnectCode || this.myCode,
+        details
+      });
+      if (logs.length > 250) logs.shift();
+      localStorage.setItem('primedesk_audit_logs', JSON.stringify(logs));
+    } catch (e) {}
   }
 
   getIceServers() {
@@ -102,16 +210,46 @@ class PrimeDeskApp {
       signalingUrlInput: document.getElementById('signalingUrlInput'),
       settingsNavItems: document.querySelectorAll('.settings-nav-item'),
       settingsSections: document.querySelectorAll('.settings-section'),
+
+      // Enterprise General
+      autoStartToggle: document.getElementById('autoStartToggle'),
+      closeActionSelect: document.getElementById('closeActionSelect'),
+      preventSleepToggle: document.getElementById('preventSleepToggle'),
+
+      // Enterprise Network & Proxy
       modeCloud: document.getElementById('modeCloud'),
       modeLan: document.getElementById('modeLan'),
       detectLocalIpBtn: document.getElementById('detectLocalIpBtn'),
       stunInput: document.getElementById('stunInput'),
+      proxyModeSelect: document.getElementById('proxyModeSelect'),
+      manualProxyHostRow: document.getElementById('manualProxyHostRow'),
+      manualProxyBypassRow: document.getElementById('manualProxyBypassRow'),
+      proxyServerInput: document.getElementById('proxyServerInput'),
+      proxyBypassInput: document.getElementById('proxyBypassInput'),
+
+      // Enterprise Display & Audio
       targetFpsSelect: document.getElementById('targetFpsSelect'),
+      qualityProfileSelect: document.getElementById('qualityProfileSelect'),
       hwAccelToggle: document.getElementById('hwAccelToggle'),
+      audioEnabledToggle: document.getElementById('audioEnabledToggle'),
+      muteHostSpeakersToggle: document.getElementById('muteHostSpeakersToggle'),
+
+      // Enterprise Security
+      unattendedToggleSettings: document.getElementById('unattendedToggleSettings'),
+      unattendedPassRowSettings: document.getElementById('unattendedPassRowSettings'),
+      unattendedPasswordInputSettings: document.getElementById('unattendedPasswordInputSettings'),
+      saveUnattendedPassSettingsBtn: document.getElementById('saveUnattendedPassSettingsBtn'),
       permControlToggle: document.getElementById('permControlToggle'),
       permClipboardToggle: document.getElementById('permClipboardToggle'),
       permFileToggle: document.getElementById('permFileToggle'),
       permPrivacyToggle: document.getElementById('permPrivacyToggle'),
+      autoLockToggle: document.getElementById('autoLockToggle'),
+
+      // Enterprise Recording & Audit
+      autoRecordToggle: document.getElementById('autoRecordToggle'),
+      recordingDirInput: document.getElementById('recordingDirInput'),
+      browseRecordingDirBtn: document.getElementById('browseRecordingDirBtn'),
+      auditLogToggle: document.getElementById('auditLogToggle'),
 
       // Navigation
       tabSupportBtn: document.getElementById('tabSupportBtn'),
@@ -199,14 +337,20 @@ class PrimeDeskApp {
     };
 
     this.dom.mySessionCode.textContent = this.formatCode(this.myCode);
-    this.dom.signalingUrlInput.value = this.signalingUrl;
-    if (this.dom.stunInput) this.dom.stunInput.value = this.stunServer;
-    if (this.dom.targetFpsSelect) this.dom.targetFpsSelect.value = String(this.targetFps);
-    if (this.dom.hwAccelToggle) this.dom.hwAccelToggle.checked = this.hwAccel;
-    if (this.dom.permControlToggle) this.dom.permControlToggle.checked = this.permControl;
-    if (this.dom.permClipboardToggle) this.dom.permClipboardToggle.checked = this.permClipboard;
-    if (this.dom.permFileToggle) this.dom.permFileToggle.checked = this.permFile;
-    if (this.dom.permPrivacyToggle) this.dom.permPrivacyToggle.checked = this.permPrivacy;
+    this.dom.unattendedToggle.checked = this.unattendedEnabled;
+    if (this.unattendedEnabled) {
+      this.dom.unattendedInputBox.style.display = 'flex';
+      this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
+    }
+
+    this.syncSettingsToUI();
+  }
+
+  syncSettingsToUI() {
+    if (this.dom.autoStartToggle) this.dom.autoStartToggle.checked = this.autoStart;
+    if (this.dom.closeActionSelect) this.dom.closeActionSelect.value = this.closeAction;
+    if (this.dom.preventSleepToggle) this.dom.preventSleepToggle.checked = this.preventSleep;
+
     if (this.serverMode === 'lan') {
       if (this.dom.modeLan) this.dom.modeLan.checked = true;
       if (this.dom.stunInput) {
@@ -220,11 +364,36 @@ class PrimeDeskApp {
         this.dom.stunInput.style.opacity = '1';
       }
     }
-    this.dom.unattendedToggle.checked = this.unattendedEnabled;
-    if (this.unattendedEnabled) {
-      this.dom.unattendedInputBox.style.display = 'flex';
-      this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
-    }
+
+    if (this.dom.signalingUrlInput) this.dom.signalingUrlInput.value = this.signalingUrl;
+    if (this.dom.stunInput) this.dom.stunInput.value = this.stunServer;
+
+    if (this.dom.proxyModeSelect) this.dom.proxyModeSelect.value = this.proxyMode;
+    if (this.dom.proxyServerInput) this.dom.proxyServerInput.value = this.proxyServer;
+    if (this.dom.proxyBypassInput) this.dom.proxyBypassInput.value = this.proxyBypass;
+    const isManual = this.proxyMode === 'manual';
+    if (this.dom.manualProxyHostRow) this.dom.manualProxyHostRow.style.display = isManual ? 'flex' : 'none';
+    if (this.dom.manualProxyBypassRow) this.dom.manualProxyBypassRow.style.display = isManual ? 'flex' : 'none';
+
+    if (this.dom.targetFpsSelect) this.dom.targetFpsSelect.value = String(this.targetFps);
+    if (this.dom.qualityProfileSelect) this.dom.qualityProfileSelect.value = this.qualityProfile;
+    if (this.dom.hwAccelToggle) this.dom.hwAccelToggle.checked = this.hwAccel;
+
+    if (this.dom.audioEnabledToggle) this.dom.audioEnabledToggle.checked = this.audioEnabled;
+    if (this.dom.muteHostSpeakersToggle) this.dom.muteHostSpeakersToggle.checked = this.muteHostSpeakers;
+
+    if (this.dom.unattendedToggleSettings) this.dom.unattendedToggleSettings.checked = this.unattendedEnabled;
+    if (this.dom.unattendedPassRowSettings) this.dom.unattendedPassRowSettings.style.display = this.unattendedEnabled ? 'flex' : 'none';
+
+    if (this.dom.permControlToggle) this.dom.permControlToggle.checked = this.permControl;
+    if (this.dom.permClipboardToggle) this.dom.permClipboardToggle.checked = this.permClipboard;
+    if (this.dom.permFileToggle) this.dom.permFileToggle.checked = this.permFile;
+    if (this.dom.permPrivacyToggle) this.dom.permPrivacyToggle.checked = this.permPrivacy;
+    if (this.dom.autoLockToggle) this.dom.autoLockToggle.checked = this.autoLock;
+
+    if (this.dom.autoRecordToggle) this.dom.autoRecordToggle.checked = this.autoRecord;
+    if (this.dom.recordingDirInput) this.dom.recordingDirInput.value = this.recordingDir;
+    if (this.dom.auditLogToggle) this.dom.auditLogToggle.checked = this.auditLog;
   }
 
   bindEvents() {
@@ -377,29 +546,66 @@ class PrimeDeskApp {
       });
     }
 
+    // Proxy Mode Select
+    if (this.dom.proxyModeSelect) {
+      this.dom.proxyModeSelect.addEventListener('change', (e) => {
+        const isManual = e.target.value === 'manual';
+        if (this.dom.manualProxyHostRow) this.dom.manualProxyHostRow.style.display = isManual ? 'flex' : 'none';
+        if (this.dom.manualProxyBypassRow) this.dom.manualProxyBypassRow.style.display = isManual ? 'flex' : 'none';
+      });
+    }
+
+    // Unattended Toggle inside Settings
+    if (this.dom.unattendedToggleSettings) {
+      this.dom.unattendedToggleSettings.addEventListener('change', (e) => {
+        this.unattendedEnabled = e.target.checked;
+        this.dom.unattendedToggle.checked = this.unattendedEnabled;
+        this.dom.unattendedInputBox.style.display = this.unattendedEnabled ? 'flex' : 'none';
+        if (this.dom.unattendedPassRowSettings) {
+          this.dom.unattendedPassRowSettings.style.display = this.unattendedEnabled ? 'flex' : 'none';
+        }
+        localStorage.setItem('primedesk_unattended_enabled', this.unattendedEnabled);
+        if (!this.unattendedEnabled) {
+          this.unattendedPassHash = '';
+          localStorage.removeItem('primedesk_unattended_hash');
+        }
+      });
+    }
+
+    // Set Unattended Password inside Settings
+    if (this.dom.saveUnattendedPassSettingsBtn) {
+      this.dom.saveUnattendedPassSettingsBtn.addEventListener('click', async () => {
+        const pass = this.dom.unattendedPasswordInputSettings.value.trim();
+        if (!pass) {
+          alert('Please enter an unattended master password.');
+          return;
+        }
+        this.unattendedPassHash = await this.hashPassword(pass);
+        localStorage.setItem('primedesk_unattended_hash', this.unattendedPassHash);
+        this.dom.saveUnattendedPassSettingsBtn.textContent = 'Saved!';
+        setTimeout(() => { this.dom.saveUnattendedPassSettingsBtn.textContent = 'Set Password'; }, 2000);
+        this.dom.unattendedPasswordInputSettings.value = '';
+        this.dom.unattendedPasswordInputSettings.placeholder = '•••••• (Password active)';
+        this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
+      });
+    }
+
+    // Browse Recording Directory Button
+    if (this.dom.browseRecordingDirBtn) {
+      this.dom.browseRecordingDirBtn.addEventListener('click', async () => {
+        if (window.primeDeskAPI && window.primeDeskAPI.selectDirectory) {
+          const selected = await window.primeDeskAPI.selectDirectory(this.recordingDir);
+          if (selected) {
+            this.recordingDir = selected;
+            this.dom.recordingDirInput.value = selected;
+          }
+        }
+      });
+    }
+
     // Settings Modal Open/Close/Save
     this.dom.settingsBtn.addEventListener('click', () => {
-      this.dom.signalingUrlInput.value = this.signalingUrl;
-      if (this.dom.stunInput) this.dom.stunInput.value = this.stunServer;
-      if (this.dom.targetFpsSelect) this.dom.targetFpsSelect.value = String(this.targetFps);
-      if (this.dom.hwAccelToggle) this.dom.hwAccelToggle.checked = this.hwAccel;
-      if (this.dom.permControlToggle) this.dom.permControlToggle.checked = this.permControl;
-      if (this.dom.permClipboardToggle) this.dom.permClipboardToggle.checked = this.permClipboard;
-      if (this.dom.permFileToggle) this.dom.permFileToggle.checked = this.permFile;
-      if (this.dom.permPrivacyToggle) this.dom.permPrivacyToggle.checked = this.permPrivacy;
-      if (this.serverMode === 'lan') {
-        if (this.dom.modeLan) this.dom.modeLan.checked = true;
-        if (this.dom.stunInput) {
-          this.dom.stunInput.disabled = true;
-          this.dom.stunInput.style.opacity = '0.5';
-        }
-      } else {
-        if (this.dom.modeCloud) this.dom.modeCloud.checked = true;
-        if (this.dom.stunInput) {
-          this.dom.stunInput.disabled = false;
-          this.dom.stunInput.style.opacity = '1';
-        }
-      }
+      this.syncSettingsToUI();
       this.dom.settingsModal.style.display = 'flex';
     });
 
@@ -411,38 +617,80 @@ class PrimeDeskApp {
       this.dom.settingsModal.style.display = 'none';
     });
 
-    this.dom.saveSettingsBtn.addEventListener('click', () => {
-      const newUrl = this.dom.signalingUrlInput.value.trim() || 'ws://localhost:9000';
+    this.dom.saveSettingsBtn.addEventListener('click', async () => {
+      // General
+      this.autoStart = this.dom.autoStartToggle ? this.dom.autoStartToggle.checked : this.autoStart;
+      this.closeAction = this.dom.closeActionSelect ? this.dom.closeActionSelect.value : this.closeAction;
+      this.preventSleep = this.dom.preventSleepToggle ? this.dom.preventSleepToggle.checked : this.preventSleep;
+
+      // Network & Proxy
+      const newUrl = this.dom.signalingUrlInput ? (this.dom.signalingUrlInput.value.trim() || 'ws://localhost:9000') : this.signalingUrl;
       const newStun = this.dom.stunInput ? (this.dom.stunInput.value.trim() || 'stun:stun.l.google.com:19302') : this.stunServer;
-      const newFps = this.dom.targetFpsSelect ? (parseInt(this.dom.targetFpsSelect.value, 10) || 30) : this.targetFps;
-      const newHw = this.dom.hwAccelToggle ? this.dom.hwAccelToggle.checked : this.hwAccel;
       const newMode = (this.dom.modeLan && this.dom.modeLan.checked) ? 'lan' : 'cloud';
-      const newPermControl = this.dom.permControlToggle ? this.dom.permControlToggle.checked : this.permControl;
-      const newPermClipboard = this.dom.permClipboardToggle ? this.dom.permClipboardToggle.checked : this.permClipboard;
-      const newPermFile = this.dom.permFileToggle ? this.dom.permFileToggle.checked : this.permFile;
-      const newPermPrivacy = this.dom.permPrivacyToggle ? this.dom.permPrivacyToggle.checked : this.permPrivacy;
+      this.proxyMode = this.dom.proxyModeSelect ? this.dom.proxyModeSelect.value : this.proxyMode;
+      this.proxyServer = this.dom.proxyServerInput ? this.dom.proxyServerInput.value.trim() : this.proxyServer;
+      this.proxyBypass = this.dom.proxyBypassInput ? this.dom.proxyBypassInput.value.trim() : this.proxyBypass;
+
+      // Display & Quality
+      this.targetFps = this.dom.targetFpsSelect ? (parseInt(this.dom.targetFpsSelect.value, 10) || 30) : this.targetFps;
+      this.qualityProfile = this.dom.qualityProfileSelect ? this.dom.qualityProfileSelect.value : this.qualityProfile;
+      this.hwAccel = this.dom.hwAccelToggle ? this.dom.hwAccelToggle.checked : this.hwAccel;
+
+      // Audio
+      this.audioEnabled = this.dom.audioEnabledToggle ? this.dom.audioEnabledToggle.checked : this.audioEnabled;
+      this.muteHostSpeakers = this.dom.muteHostSpeakersToggle ? this.dom.muteHostSpeakersToggle.checked : this.muteHostSpeakers;
+
+      // Security
+      this.permControl = this.dom.permControlToggle ? this.dom.permControlToggle.checked : this.permControl;
+      this.permClipboard = this.dom.permClipboardToggle ? this.dom.permClipboardToggle.checked : this.permClipboard;
+      this.permFile = this.dom.permFileToggle ? this.dom.permFileToggle.checked : this.permFile;
+      this.permPrivacy = this.dom.permPrivacyToggle ? this.dom.permPrivacyToggle.checked : this.permPrivacy;
+      this.autoLock = this.dom.autoLockToggle ? this.dom.autoLockToggle.checked : this.autoLock;
+
+      // Recording & Audit
+      this.autoRecord = this.dom.autoRecordToggle ? this.dom.autoRecordToggle.checked : this.autoRecord;
+      this.recordingDir = this.dom.recordingDirInput ? this.dom.recordingDirInput.value.trim() : this.recordingDir;
+      this.auditLog = this.dom.auditLogToggle ? this.dom.auditLogToggle.checked : this.auditLog;
 
       const urlChanged = (this.signalingUrl !== newUrl);
-
       this.signalingUrl = newUrl;
       this.stunServer = newStun;
-      this.targetFps = newFps;
-      this.hwAccel = newHw;
       this.serverMode = newMode;
-      this.permControl = newPermControl;
-      this.permClipboard = newPermClipboard;
-      this.permFile = newPermFile;
-      this.permPrivacy = newPermPrivacy;
+
+      // Persist to localStorage
+      localStorage.setItem('primedesk_auto_start', this.autoStart);
+      localStorage.setItem('primedesk_close_action', this.closeAction);
+      localStorage.setItem('primedesk_prevent_sleep', this.preventSleep);
 
       localStorage.setItem('primedesk_signaling_url', this.signalingUrl);
       localStorage.setItem('primedesk_stun_server', this.stunServer);
-      localStorage.setItem('primedesk_target_fps', this.targetFps);
-      localStorage.setItem('primedesk_hw_accel', this.hwAccel);
       localStorage.setItem('primedesk_server_mode', this.serverMode);
+      localStorage.setItem('primedesk_proxy_mode', this.proxyMode);
+      localStorage.setItem('primedesk_proxy_server', this.proxyServer);
+      localStorage.setItem('primedesk_proxy_bypass', this.proxyBypass);
+
+      localStorage.setItem('primedesk_target_fps', this.targetFps);
+      localStorage.setItem('primedesk_quality_profile', this.qualityProfile);
+      localStorage.setItem('primedesk_hw_accel', this.hwAccel);
+
+      localStorage.setItem('primedesk_audio_enabled', this.audioEnabled);
+      localStorage.setItem('primedesk_mute_host_speakers', this.muteHostSpeakers);
+
       localStorage.setItem('primedesk_perm_control', this.permControl);
       localStorage.setItem('primedesk_perm_clipboard', this.permClipboard);
       localStorage.setItem('primedesk_perm_file', this.permFile);
       localStorage.setItem('primedesk_perm_privacy', this.permPrivacy);
+      localStorage.setItem('primedesk_auto_lock', this.autoLock);
+
+      localStorage.setItem('primedesk_auto_record', this.autoRecord);
+      localStorage.setItem('primedesk_recording_dir', this.recordingDir);
+      localStorage.setItem('primedesk_audit_log', this.auditLog);
+
+      // Apply Native Windows Systems changes
+      if (window.primeDeskAPI && window.primeDeskAPI.setAutoStart) {
+        await window.primeDeskAPI.setAutoStart(this.autoStart);
+      }
+      await this.applyProxySettings();
 
       this.dom.settingsModal.style.display = 'none';
 
@@ -746,7 +994,11 @@ class PrimeDeskApp {
       const primarySource = sources[0];
 
       this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
+        audio: this.audioEnabled ? {
+          mandatory: {
+            chromeMediaSource: 'desktop'
+          }
+        } : false,
         video: {
           mandatory: {
             chromeMediaSource: 'desktop',
@@ -759,6 +1011,11 @@ class PrimeDeskApp {
           }
         }
       });
+
+      if (this.autoRecord) {
+        this.startSessionRecording(this.localStream);
+      }
+      this.appendAuditLog('session-started-host');
 
       this.peerConnection = new RTCPeerConnection(this.getIceServers());
 
@@ -913,6 +1170,13 @@ class PrimeDeskApp {
 
   stopHosting() {
     this.role = null;
+    this.stopSessionRecording();
+    this.appendAuditLog('session-ended-host');
+
+    if (this.autoLock && window.primeDeskAPI) {
+      console.log('[Security] Auto-locking Windows host workstation...');
+      window.primeDeskAPI.sendInput('SPECIAL LOCK');
+    }
 
     if (this.clipboardPollInterval) {
       clearInterval(this.clipboardPollInterval);
@@ -979,6 +1243,11 @@ class PrimeDeskApp {
       this.dom.addressBookView.style.display = 'none';
       this.dom.remoteViewport.style.display = 'flex';
       this.dom.remoteSessionTitle.textContent = `Connected: ${this.formatCode(this.pendingConnectCode)}`;
+
+      if (this.autoRecord) {
+        this.startSessionRecording(event.streams[0]);
+      }
+      this.appendAuditLog('session-connected-viewer');
 
       this.startPingMonitor();
       this.startClipboardPolling();
@@ -1219,6 +1488,9 @@ class PrimeDeskApp {
   }
 
   endSession() {
+    this.stopSessionRecording();
+    this.appendAuditLog('session-ended-viewer');
+
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;

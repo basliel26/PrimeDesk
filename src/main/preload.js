@@ -14,5 +14,13 @@ contextBridge.exposeInMainWorld('primeDeskAPI', {
   setPrivacyMode: (enabled) => ipcRenderer.invoke('set-privacy-mode', enabled),
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
-  closeWindow: () => ipcRenderer.invoke('close-window')
+  closeWindow: () => ipcRenderer.invoke('close-window'),
+
+  // Enterprise Settings & Media APIs
+  setNetworkProxy: (config) => ipcRenderer.invoke('set-network-proxy', config),
+  selectDirectory: (defaultPath) => ipcRenderer.invoke('select-directory', defaultPath),
+  getDefaultRecordingsDir: () => ipcRenderer.invoke('get-default-recordings-dir'),
+  saveRecording: (payload) => ipcRenderer.invoke('save-recording', payload),
+  getAutoStart: () => ipcRenderer.invoke('get-auto-start'),
+  setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled)
 });

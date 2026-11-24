@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard, session, dialog } = require('electron');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 const inputHandler = require('./inputHandler');
 
 let mainWindow = null;
@@ -181,4 +182,84 @@ ipcMain.handle('maximize-window', () => {
 
 ipcMain.handle('close-window', () => {
   if (mainWindow) mainWindow.close();
+});
+
+// Proxy Management
+ipcMain.handle('set-network-proxy', async (event, config) => {
+  try {
+    if (!config || config.mode === 'direct') {
+      await session.defaultSession.setProxy({ mode: 'direct' });
+    } else if (config.mode === 'manual' && config.rules) {
+      await session.defaultSession.setProxy({
+        proxyRules: config.rules,
+        proxyBypassRules: '<local>;127.0.0.1;localhost'
+      });
+    } else {
+      await session.defaultSession.setProxy({ mode: 'system' });
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('[Proxy] Failed to apply proxy configuration:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Directory selection for Session Recordings
+ipcMain.handle('select-directory', async (event, defaultPath) => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    defaultPath: defaultPath || app.getPath('videos')
+  });
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
+// Get default recordings directory
+ipcMain.handle('get-default-recordings-dir', () => {
+  const base = app.getPath('videos');
+  const dir = path.join(base, 'PrimeDesk Recordings');
+  if (!fs.existsSync(dir)) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+  }
+  return dir;
+});
+
+// Save Session Recording file (.webm)
+ipcMain.handle('save-recording', async (event, { buffer, filename, directory }) => {
+  try {
+    const saveDir = directory || path.join(app.getPath('videos'), 'PrimeDesk Recordings');
+    if (!fs.existsSync(saveDir)) {
+      fs.mkdirSync(saveDir, { recursive: true });
+    }
+    const targetPath = path.join(saveDir, filename);
+    fs.writeFileSync(targetPath, Buffer.from(buffer));
+    return { success: true, path: targetPath };
+  } catch (err) {
+    console.error('[Recording] Failed to save file:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Auto-start on Windows startup
+ipcMain.handle('get-auto-start', () => {
+  try {
+    return app.getLoginItemSettings().openAtLogin;
+  } catch (e) {
+    return false;
+  }
+});
+
+ipcMain.handle('set-auto-start', (event, enabled) => {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: !!enabled,
+      path: process.execPath
+    });
+    return app.getLoginItemSettings().openAtLogin;
+  } catch (e) {
+    return false;
+  }
 });

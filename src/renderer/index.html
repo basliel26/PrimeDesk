@@ -411,113 +411,375 @@
         <div class="settings-layout">
           <!-- Settings Sidebar -->
           <div class="settings-sidebar">
-            <button class="settings-nav-item active" data-section="network">
+            <button class="settings-nav-item active" data-section="general">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              General & System
+            </button>
+            <button class="settings-nav-item" data-section="network">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-              Network & Server
+              Network & Proxy
             </button>
             <button class="settings-nav-item" data-section="display">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
               Display & Quality
             </button>
+            <button class="settings-nav-item" data-section="audio">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+              Audio & Media
+            </button>
             <button class="settings-nav-item" data-section="security">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-              Security
+              Security & Access
+            </button>
+            <button class="settings-nav-item" data-section="recording">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>
+              Recording & Audit
             </button>
             <button class="settings-nav-item" data-section="about">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-              About
+              About & Diagnostics
             </button>
           </div>
 
           <!-- Settings Content Area -->
           <div class="settings-content">
 
-            <!-- Section 1: Network & Server -->
-            <div class="settings-section active" id="sec-network">
-              <div class="setting-group">
-                <label>Signaling Server Mode</label>
+            <!-- Section 1: General & System -->
+            <div class="settings-section active" id="sec-general">
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Application Lifecycle</div>
+                  <div class="card-header-desc">Control how PrimeDesk boots, operates in the background, and handles power states.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Launch on Windows Startup</span>
+                    <span class="setting-row-desc">Automatically starts PrimeDesk in the background when your workstation boots.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="autoStartToggle">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Close Window Action</span>
+                    <span class="setting-row-desc">Specify whether closing the window minimizes to notification tray or exits.</span>
+                  </div>
+                  <select id="closeActionSelect" class="setting-select">
+                    <option value="tray" selected>Minimize to System Tray</option>
+                    <option value="exit">Terminate Application</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Prevent Sleep During Active Sessions</span>
+                    <span class="setting-row-desc">Keeps the hospital terminal awake while a remote support connection is active.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="preventSleepToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 2: Network & Proxy -->
+            <div class="settings-section" id="sec-network">
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Signaling Topology</div>
+                  <div class="card-header-desc">Select how terminals announce their presence and initiate P2P WebRTC handshakes.</div>
+                </div>
                 <div class="setting-radio-cards">
                   <label class="radio-card">
                     <input type="radio" name="serverMode" value="cloud" id="modeCloud">
                     <div class="radio-card-content">
                       <span class="radio-card-title">Cloud Internet Mode</span>
-                      <span class="radio-card-desc">For remote connections across cities over the internet.</span>
+                      <span class="radio-card-desc">Public internet discovery across broadband, cellular, and remote branch clinics.</span>
                     </div>
                   </label>
                   <label class="radio-card">
                     <input type="radio" name="serverMode" value="lan" id="modeLan">
                     <div class="radio-card-content">
                       <span class="radio-card-title">Hospital LAN Mode (Offline)</span>
-                      <span class="radio-card-desc">Zero internet required. Operates across local hospital Wi-Fi.</span>
+                      <span class="radio-card-desc">Zero internet required. Operates across local hospital Wi-Fi or Ethernet switches.</span>
                     </div>
                   </label>
                 </div>
-              </div>
-
-              <div class="setting-group">
-                <div class="label-with-action">
-                  <label for="signalingUrlInput">Signaling Endpoint URL</label>
-                  <button class="text-link-btn" id="detectLocalIpBtn">Detect My LAN IP</button>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Signaling Server Endpoint</span>
+                    <span class="setting-row-desc">WebSocket signaling URI (e.g. <code>ws://192.168.1.15:9000</code> or cloud domain).</span>
+                  </div>
+                  <div class="input-action-group">
+                    <input type="text" id="signalingUrlInput" value="ws://localhost:9000" class="setting-input">
+                    <button class="btn btn-secondary btn-sm" id="detectLocalIpBtn">Detect LAN IP</button>
+                  </div>
                 </div>
-                <input type="text" id="signalingUrlInput" value="ws://localhost:9000">
-                <p class="modal-hint">Specify WebSocket address (e.g. <code>ws://192.168.1.15:9000</code> or public domain).</p>
               </div>
 
-              <div class="setting-group">
-                <label for="stunInput">STUN Discovery Server</label>
-                <input type="text" id="stunInput" value="stun:stun.l.google.com:19302">
-                <p class="modal-hint">Used for public NAT hole-punching over cellular/broadband.</p>
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Institutional Proxy Configuration</div>
+                  <div class="card-header-desc">Route outbound traffic through hospital HTTP or SOCKS5 proxies (Squid).</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Proxy Protocol Mode</span>
+                    <span class="setting-row-desc">Choose proxy resolution strategy for outbound signaling and WebRTC.</span>
+                  </div>
+                  <select id="proxyModeSelect" class="setting-select">
+                    <option value="direct" selected>Direct Connection (No Proxy)</option>
+                    <option value="system">Use Windows System Proxy</option>
+                    <option value="manual">Manual Proxy Configuration</option>
+                  </select>
+                </div>
+                <div class="setting-row" id="manualProxyHostRow" style="display: none;">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Proxy Server Address</span>
+                    <span class="setting-row-desc">Format: <code>host:port</code> (e.g. <code>10.18.113.140:3128</code> or <code>proxy.hospital.local:8080</code>).</span>
+                  </div>
+                  <input type="text" id="proxyServerInput" placeholder="10.18.113.140:3128" class="setting-input">
+                </div>
+                <div class="setting-row" id="manualProxyBypassRow" style="display: none;">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Proxy Bypass Rules</span>
+                    <span class="setting-row-desc">Semicolon-separated hostnames and subnets to bypass proxy.</span>
+                  </div>
+                  <input type="text" id="proxyBypassInput" value="&lt;local&gt;;127.0.0.1;localhost" class="setting-input">
+                </div>
+              </div>
+
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">NAT Traversal & Hole Punching</div>
+                  <div class="card-header-desc">STUN discovery server for resolving public IP addresses across routers.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">STUN Discovery Server</span>
+                    <span class="setting-row-desc">Automated session traversal utilities for NAT (RFC 5389).</span>
+                  </div>
+                  <input type="text" id="stunInput" value="stun:stun.l.google.com:19302" class="setting-input">
+                </div>
               </div>
             </div>
 
-            <!-- Section 2: Display & Quality -->
+            <!-- Section 3: Display & Quality -->
             <div class="settings-section" id="sec-display">
-              <div class="setting-group">
-                <label for="targetFpsSelect">Target Frame Rate</label>
-                <select id="targetFpsSelect" class="setting-select">
-                  <option value="60">60 FPS (Ultra Smooth - Recommended for LAN)</option>
-                  <option value="30" selected>30 FPS (Balanced - Standard Internet)</option>
-                  <option value="15">15 FPS (Bandwidth Saver - Low-Speed 3G/4G)</option>
-                </select>
-                <p class="modal-hint">Controls video framerate to optimize bandwidth consumption.</p>
-              </div>
-
-              <div class="setting-group">
-                <label class="toggle-switch">
-                  <input type="checkbox" id="hwAccelToggle" checked>
-                  <span class="slider"></span>
-                  <span class="toggle-text">Hardware Acceleration (DirectX DXGI Duplication)</span>
-                </label>
-                <p class="modal-hint">Leverages GPU desktop capture for sub-millisecond frame grabbing.</p>
-              </div>
-            </div>
-
-            <!-- Section 3: Security & Access -->
-            <div class="settings-section" id="sec-security">
-              <div class="setting-group">
-                <label>Default Permissions for Incoming Sessions</label>
-                <div class="checkbox-list">
-                  <label class="checkbox-item">
-                    <input type="checkbox" id="permControlToggle" checked>
-                    <span>Allow Remote Mouse & Keyboard Injection</span>
-                  </label>
-                  <label class="checkbox-item">
-                    <input type="checkbox" id="permClipboardToggle" checked>
-                    <span>Allow Bidirectional Clipboard Synchronization</span>
-                  </label>
-                  <label class="checkbox-item">
-                    <input type="checkbox" id="permFileToggle" checked>
-                    <span>Allow Incoming File Transfer</span>
-                  </label>
-                  <label class="checkbox-item">
-                    <input type="checkbox" id="permPrivacyToggle" checked>
-                    <span>Allow Technician to Blackout Physical Monitor (Privacy Mode)</span>
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Streaming Performance & Framerate</div>
+                  <div class="card-header-desc">Balance visual fluidity with available network bandwidth.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Target Framerate</span>
+                    <span class="setting-row-desc">Controls maximum video refresh rate pushed to the remote technician.</span>
+                  </div>
+                  <select id="targetFpsSelect" class="setting-select">
+                    <option value="60">60 FPS (Ultra Smooth - LAN Gigabit)</option>
+                    <option value="30" selected>30 FPS (Balanced - Standard Internet)</option>
+                    <option value="15">15 FPS (Bandwidth Saver - Low-Speed 3G/4G)</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Image Quality Profile</span>
+                    <span class="setting-row-desc">Prioritize sub-millisecond mouse response or pixel-sharp medical typography.</span>
+                  </div>
+                  <select id="qualityProfileSelect" class="setting-select">
+                    <option value="balanced" selected>Balanced (Standard EHR Workflows)</option>
+                    <option value="speed">Ultra Low Latency (Prioritize Input Response)</option>
+                    <option value="quality">High Definition (Prioritize Text & X-Ray Clarity)</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Hardware Acceleration (DirectX DXGI)</span>
+                    <span class="setting-row-desc">Utilizes GPU desktop duplication for sub-millisecond frame acquisition.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="hwAccelToggle" checked>
+                    <span class="slider"></span>
                   </label>
                 </div>
               </div>
             </div>
 
-            <!-- Section 4: About -->
+            <!-- Section 4: Audio & Media -->
+            <div class="settings-section" id="sec-audio">
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">System Audio Streaming</div>
+                  <div class="card-header-desc">Transmit hospital workstation audio cues directly to technician headphones.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Transmit System Audio</span>
+                    <span class="setting-row-desc">Stream EHR alert chimes, system notification beeps, and diagnostic sounds.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="audioEnabledToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Mute Remote Physical Speakers</span>
+                    <span class="setting-row-desc">Silences physical speakers in the hospital room during remote operations.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="muteHostSpeakersToggle">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 5: Security & Access -->
+            <div class="settings-section" id="sec-security">
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Unattended Master Access</div>
+                  <div class="card-header-desc">Configure headless password authentication for after-hours server maintenance.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Enable Unattended Access</span>
+                    <span class="setting-row-desc">Allows authenticated technicians to log in without local staff clicking Accept.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="unattendedToggleSettings">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="unattendedPassRowSettings" style="display: none;">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Unattended Master Password</span>
+                    <span class="setting-row-desc">Password is salted and hashed using cryptographic SHA-256 before storage.</span>
+                  </div>
+                  <div class="input-action-group">
+                    <input type="password" id="unattendedPasswordInputSettings" placeholder="Enter secure password" class="setting-input">
+                    <button class="btn btn-secondary btn-sm" id="saveUnattendedPassSettingsBtn">Set Password</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Default Operator Protections (Permissions Checklist)</div>
+                  <div class="card-header-desc">Granular controls that strictly enforce what the remote technician can perform.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Remote Mouse & Keyboard Injection</span>
+                    <span class="setting-row-desc">When disabled, session operates in View-Only mode; all remote input is blocked.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="permControlToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Bidirectional Clipboard Synchronization</span>
+                    <span class="setting-row-desc">Allows copying and pasting text between technician and hospital workstation.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="permClipboardToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Incoming Direct File Transfer</span>
+                    <span class="setting-row-desc">Allows technician to transfer EHR updates, patches, and logs directly over WebRTC.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="permFileToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Physical Monitor Blackout (Privacy Mode)</span>
+                    <span class="setting-row-desc">Allows technician to obscure the physical screen to protect patient confidentiality.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="permPrivacyToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Session Termination Safeguards</div>
+                  <div class="card-header-desc">Prevent unauthorized access to clinical EHR software after a technician leaves.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Auto-Lock Windows upon Disconnect</span>
+                    <span class="setting-row-desc">Instantly locks the Windows workstation (Win+L) when the remote session ends.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="autoLockToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 6: Recording & Audit -->
+            <div class="settings-section" id="sec-recording">
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">EHR Medical Compliance Recording</div>
+                  <div class="card-header-desc">Record remote support sessions for HIPAA/EHR compliance and accountability.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Automatically Record Incoming Sessions</span>
+                    <span class="setting-row-desc">Captures video and audio to high-efficiency WebM format whenever support is active.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="autoRecordToggle">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Recordings Storage Directory</span>
+                    <span class="setting-row-desc">Directory path on disk where session video recordings will be saved.</span>
+                  </div>
+                  <div class="input-action-group">
+                    <input type="text" id="recordingDirInput" placeholder="C:\Users\...\Videos\PrimeDesk Recordings" class="setting-input" readonly>
+                    <button class="btn btn-secondary btn-sm" id="browseRecordingDirBtn">Browse...</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Session Audit Logging</div>
+                  <div class="card-header-desc">Maintain tamper-evident connection logs for administrative review.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Maintain Local Audit Trail</span>
+                    <span class="setting-row-desc">Logs connection timestamps, remote terminal codes, and session durations to file.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="auditLogToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 7: About & Diagnostics -->
             <div class="settings-section" id="sec-about">
               <div class="about-card">
                 <div class="about-logo">
@@ -530,28 +792,36 @@
                   </svg>
                 </div>
                 <div class="about-details">
-                  <h4>PrimeDesk Support Suite</h4>
-                  <p class="version-tag">Version 1.0.0 (Enterprise Edition)</p>
-                  <p class="arch-tag">x64 Native Architecture • Windows 10/11 / Server</p>
+                  <h4>PrimeDesk Enterprise Remote Support Suite</h4>
+                  <p class="version-tag">Version 1.0.0 (Release Build) • Production Grade</p>
+                  <p class="arch-tag">x64 Native Architecture • Windows 10/11 / Windows Server</p>
                 </div>
               </div>
 
               <div class="about-meta-list">
                 <div class="meta-row">
-                  <span class="meta-label">License:</span>
-                  <span class="meta-val">MIT Open Enterprise License (100% Free Forever)</span>
+                  <span class="meta-label">Commercial Status:</span>
+                  <span class="meta-val" style="color: #10b981;">100% Free Forever (Zero Subscriptions / Zero Time Restrictions)</span>
                 </div>
                 <div class="meta-row">
-                  <span class="meta-label">Developer:</span>
+                  <span class="meta-label">License:</span>
+                  <span class="meta-val">MIT Open Source Enterprise License</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">Lead Engineer:</span>
                   <span class="meta-val">Basliel Getu</span>
                 </div>
                 <div class="meta-row">
-                  <span class="meta-label">Repository:</span>
+                  <span class="meta-label">Source Repository:</span>
                   <span class="meta-val">github.com/basliel26/PrimeDesk</span>
                 </div>
                 <div class="meta-row">
-                  <span class="meta-label">Encryption:</span>
-                  <span class="meta-val">WebRTC DTLS 1.2 / SRTP / Ed25519</span>
+                  <span class="meta-label">Cryptographic Security:</span>
+                  <span class="meta-val">WebRTC DTLS 1.2 / SRTP / Ed25519 End-to-End P2P</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">Native Input Engine:</span>
+                  <span class="meta-val">C# User32/Kernel32 Worker (PrimeInput.exe)</span>
                 </div>
               </div>
             </div>
