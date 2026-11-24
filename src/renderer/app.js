@@ -34,7 +34,7 @@ class PrimeDeskApp {
 
     this.serverMode = localStorage.getItem('primedesk_server_mode') || 'cloud';
     const savedUrl = localStorage.getItem('primedesk_signaling_url');
-    if (!savedUrl || savedUrl === 'ws://localhost:9000' && this.serverMode === 'cloud' || !savedUrl.startsWith('ws')) {
+    if (this.serverMode === 'cloud' || !savedUrl || savedUrl === 'ws://localhost:9000' || !savedUrl.startsWith('ws')) {
       this.signalingUrl = DEFAULT_CLOUD_SIGNALING_URL;
       localStorage.setItem('primedesk_signaling_url', this.signalingUrl);
     } else {
@@ -89,24 +89,32 @@ class PrimeDeskApp {
     // Address Book
     this.addressBook = JSON.parse(localStorage.getItem('primedesk_address_book') || '[]');
 
+    this.init();
+  }
+
+  async init() {
     this.initDOMElements();
     this.bindEvents();
     this.renderAddressBook();
-    this.applyProxySettings();
-    this.initSystemSettings();
+    await this.applyProxySettings();
+    await this.initSystemSettings();
     this.connectSignaling();
   }
 
   async applyProxySettings() {
-    if (!window.primeDeskAPI || !window.primeDeskAPI.setNetworkProxy) return;
-    let rules = null;
-    if (this.proxyMode === 'manual' && this.proxyServer.trim()) {
-      rules = `http=${this.proxyServer.trim()};https=${this.proxyServer.trim()}`;
+    try {
+      if (!window.primeDeskAPI || !window.primeDeskAPI.setNetworkProxy) return;
+      let rules = null;
+      if (this.proxyMode === 'manual' && this.proxyServer.trim()) {
+        rules = `http=${this.proxyServer.trim()};https=${this.proxyServer.trim()}`;
+      }
+      await window.primeDeskAPI.setNetworkProxy({
+        mode: this.proxyMode,
+        rules
+      });
+    } catch (err) {
+      console.warn('[Network] Proxy configuration warning:', err);
     }
-    await window.primeDeskAPI.setNetworkProxy({
-      mode: this.proxyMode,
-      rules
-    });
   }
 
   async initSystemSettings() {

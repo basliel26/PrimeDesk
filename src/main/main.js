@@ -36,7 +36,14 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await session.defaultSession.setProxy({ mode: 'system' });
+    console.log('[PrimeDesk] System network proxy initialized on startup');
+  } catch (err) {
+    console.warn('[PrimeDesk] Could not initialize system proxy:', err);
+  }
+
   createWindow();
 
   app.on('activate', () => {

@@ -1,7 +1,7 @@
 {
   "name": "primedesk",
   "productName": "PrimeDesk",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Enterprise WebRTC Remote Desktop Support Suite",
   "main": "src/main/main.js",
   "scripts": {
