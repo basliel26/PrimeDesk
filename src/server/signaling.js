@@ -8,7 +8,7 @@ const server = http.createServer((req, res) => {
 });
 
 const wss = new WebSocket.Server({ server });
-const rooms = new Map(); // code -> { hostWs, viewerWs }
+const rooms = new Map(); // code -> { hostWs, viewerWs, code }
 
 wss.on('connection', (ws) => {
   let userCode = null;
@@ -22,26 +22,54 @@ wss.on('connection', (ws) => {
         case 'register-host': {
           userCode = msg.code;
           userRole = 'host';
-          rooms.set(userCode, { hostWs: ws, viewerWs: null });
+          rooms.set(userCode, { hostWs: ws, viewerWs: null, code: userCode });
           ws.send(JSON.stringify({ type: 'registered', code: userCode }));
-          console.log(`[Signaling] Host registered with code: ${userCode}`);
+          console.log(`[Signaling] Terminal registered: ${userCode}`);
           break;
         }
 
-        case 'join-session': {
-          userCode = msg.code;
-          userRole = 'viewer';
-          const room = rooms.get(userCode);
-          if (!room || !room.hostWs) {
-            ws.send(JSON.stringify({ type: 'error', message: 'Session code not found or host is offline.' }));
+        case 'request-connect': {
+          const targetCode = msg.code;
+          const room = rooms.get(targetCode);
+
+          if (!room || !room.hostWs || room.hostWs.readyState !== WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Hospital terminal not found or offline.' }));
             return;
           }
 
+          if (room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Terminal is currently in another active session.' }));
+            return;
+          }
+
+          userCode = targetCode;
+          userRole = 'viewer';
           room.viewerWs = ws;
-          ws.send(JSON.stringify({ type: 'joined', code: userCode }));
-          // Notify host that viewer joined, so host can prepare or initiate
-          room.hostWs.send(JSON.stringify({ type: 'viewer-joined' }));
-          console.log(`[Signaling] Viewer joined room: ${userCode}`);
+
+          // Forward connection request to host
+          room.hostWs.send(JSON.stringify({
+            type: 'incoming-connection',
+            clientName: msg.clientName || 'EHR Support Technician',
+            unattendedPass: msg.unattendedPass || null
+          }));
+          console.log(`[Signaling] Connection request sent to terminal: ${targetCode}`);
+          break;
+        }
+
+        case 'accept-connection': {
+          const room = rooms.get(userCode);
+          if (room && room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
+            room.viewerWs.send(JSON.stringify({ type: 'connection-accepted' }));
+          }
+          break;
+        }
+
+        case 'decline-connection': {
+          const room = rooms.get(userCode);
+          if (room && room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
+            room.viewerWs.send(JSON.stringify({ type: 'connection-declined', reason: msg.reason || 'Declined by remote hospital' }));
+            room.viewerWs = null;
+          }
           break;
         }
 
@@ -71,16 +99,16 @@ wss.on('connection', (ws) => {
       const room = rooms.get(userCode);
       if (userRole === 'host') {
         if (room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
-          room.viewerWs.send(JSON.stringify({ type: 'session-ended', reason: 'Host disconnected' }));
+          room.viewerWs.send(JSON.stringify({ type: 'session-ended', reason: 'Hospital terminal disconnected' }));
         }
         rooms.delete(userCode);
-        console.log(`[Signaling] Room destroyed: ${userCode}`);
+        console.log(`[Signaling] Terminal offline: ${userCode}`);
       } else if (userRole === 'viewer') {
         if (room.hostWs && room.hostWs.readyState === WebSocket.OPEN) {
-          room.hostWs.send(JSON.stringify({ type: 'session-ended', reason: 'Viewer disconnected' }));
+          room.hostWs.send(JSON.stringify({ type: 'session-ended', reason: 'Technician disconnected' }));
         }
         room.viewerWs = null;
-        console.log(`[Signaling] Viewer left room: ${userCode}`);
+        console.log(`[Signaling] Technician disconnected from: ${userCode}`);
       }
     }
   };
@@ -90,5 +118,5 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[PrimeDesk] Signaling Server running on port ${PORT}`);
+  console.log(`[PrimeDesk] Enterprise Signaling Server active on port ${PORT}`);
 });

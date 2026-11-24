@@ -3,33 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PrimeDesk - Hospital Remote Support Suite</title>
+  <title>PrimeDesk Enterprise - Hospital Remote Support</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <div class="app-container" id="appContainer">
 
-    <!-- Normal Header -->
+    <!-- Header Navigation -->
     <header class="app-header" id="appHeader">
       <div class="brand">
         <div class="brand-logo">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" stroke="#38bdf8"></rect>
-            <line x1="8" y1="21" x2="16" y2="21" stroke="#38bdf8"></line>
-            <line x1="12" y1="17" x2="12" y2="21" stroke="#38bdf8"></line>
-            <path d="M12 7v6M9 10h6" stroke="#0ea5e9" stroke-width="2.5"></path>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+            <line x1="12" y1="7" x2="12" y2="13"></line>
+            <line x1="9" y1="10" x2="15" y2="10"></line>
           </svg>
         </div>
         <div class="brand-text">
           <h1>Prime<span>Desk</span></h1>
-          <span class="subtext">Hospital EHR Support Suite</span>
+          <span class="subtext">EHR Remote Support Suite</span>
         </div>
       </div>
 
-      <!-- Navigation Tabs -->
       <nav class="header-nav">
-        <button class="nav-tab active" id="tabSupportBtn">⚡ Remote Support</button>
-        <button class="nav-tab" id="tabAddressBookBtn">🏥 Address Book (<span id="addressBookCount">0</span>)</button>
+        <button class="nav-tab active" id="tabSupportBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          Remote Sessions
+        </button>
+        <button class="nav-tab" id="tabAddressBookBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"></path>
+            <path d="M6 6h10"></path>
+            <path d="M6 10h10"></path>
+          </svg>
+          Address Book (<span id="addressBookCount">0</span>)
+        </button>
       </nav>
 
       <div class="header-right">
@@ -37,8 +50,8 @@
           <span class="status-dot disconnected" id="serverDot"></span>
           <span id="serverStatusText">Signaling: Connecting...</span>
         </div>
-        <button class="icon-btn" id="settingsBtn" title="Server Settings">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button class="icon-btn" id="settingsBtn" title="Network Configuration">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
@@ -46,36 +59,42 @@
       </div>
     </header>
 
-    <!-- TAB 1: Support View -->
+    <!-- Main Dashboard View -->
     <main class="dashboard-view" id="dashboardView">
       <div class="cards-grid">
         
-        <!-- Left Card: Hospital Share This Screen -->
+        <!-- Left Card: Hospital Terminal Information -->
         <div class="card host-card">
           <div class="card-header">
             <div class="card-icon host-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
               </svg>
             </div>
             <div>
-              <h2>Share This Computer</h2>
-              <p>Allow the EHR vendor to view and control this terminal</p>
+              <h2>This Computer</h2>
+              <p>Terminal address for incoming technical support</p>
             </div>
           </div>
 
           <div class="card-body">
             <div class="code-box">
-              <span class="code-label">Your Session Code</span>
+              <span class="code-label">Your Terminal Address</span>
               <div class="code-display" id="mySessionCode">--- ---</div>
-              <button class="copy-btn" id="copyCodeBtn" title="Copy Code">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <button class="copy-btn" id="copyCodeBtn" title="Copy Address">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                 </svg>
-                Copy
+                Copy Address
               </button>
+            </div>
+
+            <div class="terminal-status-banner">
+              <span class="indicator-dot active"></span>
+              <span>Ready for incoming connection</span>
             </div>
 
             <!-- Unattended Access Section -->
@@ -83,69 +102,67 @@
               <label class="toggle-switch">
                 <input type="checkbox" id="unattendedToggle">
                 <span class="slider"></span>
-                <span class="toggle-text">Enable Unattended Access (After-Hours)</span>
+                <span class="toggle-text">Unattended Access (After-Hours Password)</span>
               </label>
               <div class="unattended-input-box" id="unattendedInputBox" style="display: none;">
-                <input type="password" id="unattendedPasswordInput" placeholder="Set Unattended Password" autocomplete="new-password">
+                <input type="password" id="unattendedPasswordInput" placeholder="Set Master Password" autocomplete="new-password">
                 <button class="small-btn" id="saveUnattendedPassBtn">Save</button>
               </div>
             </div>
 
-            <div class="host-controls">
-              <button class="btn btn-primary" id="toggleHostBtn">
-                <span class="btn-icon">▶</span> Start Sharing Session
-              </button>
-              <div class="session-status" id="hostStatusPill">
-                <span class="dot"></span> Status: Standby
-              </div>
-            </div>
-
             <div class="security-note">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
               </svg>
-              <span>Encrypted P2P connection. Window minimizes when support starts to prevent screen mirror.</span>
+              <span>Encrypted peer-to-peer session. Connection requires your authorization before access is granted.</span>
             </div>
           </div>
         </div>
 
-        <!-- Right Card: Vendor Connect to Remote -->
+        <!-- Right Card: Connect to Remote Terminal -->
         <div class="card viewer-card">
           <div class="card-header">
             <div class="card-icon viewer-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="2" y="3" width="20" height="14" rx="2"></rect>
-                <line x1="8" y1="21" x2="16" y2="21"></line>
-                <line x1="12" y1="17" x2="12" y2="21"></line>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                <polyline points="10 17 15 12 10 7"></polyline>
+                <line x1="15" y1="12" x2="3" y2="12"></line>
               </svg>
             </div>
             <div>
-              <h2>Control Remote Hospital</h2>
-              <p>Connect to a hospital terminal using their session code</p>
+              <h2>Control Remote Terminal</h2>
+              <p>Establish a secure support session to a remote hospital</p>
             </div>
           </div>
 
           <div class="card-body">
             <div class="input-group">
-              <label for="remoteCodeInput">Enter Hospital Session Code</label>
+              <label for="remoteCodeInput">Remote Terminal Address</label>
               <div class="input-wrapper">
                 <input type="text" id="remoteCodeInput" placeholder="e.g. 582-914" maxlength="7" autocomplete="off">
               </div>
             </div>
 
             <button class="btn btn-connect" id="connectBtn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-                <polyline points="10 17 15 12 10 7"></polyline>
-                <line x1="15" y1="12" x2="3" y2="12"></line>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
               Connect to Terminal
             </button>
 
             <div class="features-list">
-              <div class="feature-item"><span class="check">✓</span> Real-time mouse & keyboard + Clipboard Sync</div>
-              <div class="feature-item"><span class="check">✓</span> Unattended Password Support (2 AM Access)</div>
-              <div class="feature-item"><span class="check">✓</span> P2P File Transfer, Chat & Privacy Blackout</div>
+              <div class="feature-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Hardware-accelerated low-latency display & input
+              </div>
+              <div class="feature-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Bidirectional clipboard synchronization & file transfer
+              </div>
+              <div class="feature-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Unlimited duration with zero subscription restrictions
+              </div>
             </div>
           </div>
         </div>
@@ -153,81 +170,152 @@
       </div>
     </main>
 
-    <!-- TAB 2: Address Book View -->
+    <!-- Address Book View -->
     <main class="addressbook-view" id="addressBookView" style="display: none;">
       <div class="addressbook-container">
         <div class="addressbook-header">
           <div>
-            <h2>Hospital Address Book</h2>
-            <p>Saved client hospitals for quick 1-click remote support</p>
+            <h2>Hospital Directory</h2>
+            <p>Saved client hospital workstations for rapid one-click support</p>
           </div>
-          <button class="btn btn-primary btn-add-hospital" id="addHospitalBtn">+ Add New Hospital</button>
+          <button class="btn btn-primary btn-add-hospital" id="addHospitalBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Add Workstation
+          </button>
         </div>
 
-        <div class="hospital-cards-grid" id="hospitalCardsGrid">
-          <!-- Hospital cards dynamically injected here -->
-        </div>
+        <div class="hospital-cards-grid" id="hospitalCardsGrid"></div>
 
         <div class="empty-addressbook" id="emptyAddressBook" style="display: none;">
-          <div class="empty-icon">🏥</div>
-          <h3>No Hospitals Added Yet</h3>
-          <p>Click "Add New Hospital" to save frequently supported EHR terminals.</p>
+          <div class="empty-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+          </div>
+          <h3>No Workstations Registered</h3>
+          <p>Add hospital workstations to initiate support sessions with a single click.</p>
         </div>
       </div>
     </main>
 
-    <!-- Hospital Floating Pill View (Active when hospital shares screen) -->
+    <!-- INCOMING CONNECTION MODAL (The AnyDesk Accept Prompt) -->
+    <div class="modal-backdrop" id="incomingModal" style="display: none;">
+      <div class="modal incoming-modal">
+        <div class="incoming-header">
+          <div class="incoming-icon-ring">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+          </div>
+          <div>
+            <h3>Incoming Support Request</h3>
+            <p id="incomingCallerText">EHR Technical Support is requesting access</p>
+          </div>
+        </div>
+
+        <div class="incoming-permissions">
+          <div class="permission-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Allow mouse and keyboard control</span>
+          </div>
+          <div class="permission-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Allow clipboard synchronization</span>
+          </div>
+          <div class="permission-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Allow direct file transfer</span>
+          </div>
+        </div>
+
+        <div class="incoming-actions">
+          <button class="btn btn-danger btn-decline" id="declineBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            Decline
+          </button>
+          <button class="btn btn-connect btn-accept" id="acceptBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Accept Session
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hospital Floating Pill (Active when support is connected) -->
     <div class="floating-pill-view" id="floatingPillView" style="display: none;">
       <div class="pill-badge">
         <span class="pulse-indicator"></span>
         <div class="pill-info">
-          <span class="pill-title">EHR Support Active</span>
-          <span class="pill-desc">Technician is connected</span>
+          <span class="pill-title">Remote Session Active</span>
+          <span class="pill-desc">EHR Support Connected</span>
         </div>
       </div>
       <div class="pill-actions">
-        <button class="pill-btn" id="pillChatBtn" title="Chat with Technician">
-          💬 <span id="pillChatBadge" class="chat-badge" style="display: none;">0</span>
+        <button class="pill-btn" id="pillChatBtn" title="Support Chat">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          <span id="pillChatBadge" class="chat-badge" style="display: none;">0</span>
         </button>
-        <button class="pill-btn pill-btn-danger" id="pillStopBtn" title="Stop Support Immediately">
-          ✕ Stop
+        <button class="pill-btn pill-btn-danger" id="pillStopBtn" title="Terminate Session Immediately">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          Terminate
         </button>
       </div>
     </div>
 
-    <!-- Remote Viewer Screen (Shown on Vendor computer) -->
+    <!-- Remote Viewer Viewport (Technician Screen) -->
     <div class="remote-viewport-container" id="remoteViewport" style="display: none;">
       <div class="viewport-toolbar">
         <div class="toolbar-left">
           <span class="pulse-indicator"></span>
-          <span class="toolbar-title" id="remoteSessionTitle">Connected to Hospital</span>
+          <span class="toolbar-title" id="remoteSessionTitle">Connected to Terminal</span>
           <span class="stat-pill" id="remoteStats">0 ms | 60 FPS</span>
-          <span class="clipboard-indicator" title="Clipboard Sync Active">📋 Synced</span>
+          <span class="clipboard-indicator">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Clipboard Synced
+          </span>
         </div>
 
         <div class="toolbar-actions">
           <!-- Special Keys Menu -->
           <div class="dropdown-wrapper">
-            <button class="tool-btn" id="specialKeysBtn">⌨️ Keys ▼</button>
+            <button class="tool-btn" id="specialKeysBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"></path></svg>
+              Actions
+            </button>
             <div class="dropdown-menu" id="specialKeysMenu" style="display: none;">
-              <button class="dropdown-item" id="keyTaskMgrBtn">📊 Task Manager (Ctrl+Shift+Esc)</button>
-              <button class="dropdown-item" id="keyDesktopBtn">🪟 Show Desktop (Win+D)</button>
-              <button class="dropdown-item" id="keyLockBtn">🔒 Lock Workstation (Win+L)</button>
+              <button class="dropdown-item" id="keyTaskMgrBtn">Task Manager (Ctrl+Shift+Esc)</button>
+              <button class="dropdown-item" id="keyDesktopBtn">Show Desktop (Win+D)</button>
+              <button class="dropdown-item" id="keyLockBtn">Lock Workstation (Win+L)</button>
             </div>
           </div>
 
           <!-- Privacy Black Screen Toggle -->
-          <button class="tool-btn" id="privacyToggleBtn" title="Black out physical hospital screen">
-            🕶️ Privacy Screen: OFF
+          <button class="tool-btn" id="privacyToggleBtn" title="Black out physical remote monitor">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            <span id="privacyBtnText">Privacy: OFF</span>
           </button>
 
-          <button class="tool-btn" id="fitScreenBtn" title="Fit to Window">⛶ Fit</button>
-          <button class="tool-btn" id="transferFileBtn" title="Send File to Hospital">📁 Send File</button>
-          <button class="tool-btn" id="toggleChatBtn" title="Open Chat">
-            💬 Chat <span id="chatBadge" class="chat-badge" style="display: none;">0</span>
+          <button class="tool-btn" id="fitScreenBtn" title="Toggle Display Scale">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+            <span id="fitBtnText">Fit</span>
           </button>
-          <button class="tool-btn" id="fullscreenBtn" title="Toggle Fullscreen">🖥️ Fullscreen</button>
-          <button class="tool-btn btn-danger" id="disconnectBtn" title="End Session">✕ Disconnect</button>
+
+          <button class="tool-btn" id="transferFileBtn" title="Send File to Remote Terminal">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            Send File
+          </button>
+
+          <button class="tool-btn" id="toggleChatBtn" title="Support Chat">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            Chat <span id="chatBadge" class="chat-badge" style="display: none;">0</span>
+          </button>
+
+          <button class="tool-btn" id="fullscreenBtn" title="Toggle Fullscreen">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+          </button>
+
+          <button class="tool-btn btn-danger" id="disconnectBtn" title="End Remote Session">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+            Disconnect
+          </button>
         </div>
       </div>
 
@@ -239,11 +327,13 @@
         <!-- Chat Drawer -->
         <div class="chat-drawer" id="chatDrawer" style="display: none;">
           <div class="chat-header">
-            <h3>Support Chat</h3>
-            <button class="chat-close" id="closeChatBtn">✕</button>
+            <h3>Support Messages</h3>
+            <button class="chat-close" id="closeChatBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
           <div class="chat-messages" id="chatMessages">
-            <div class="chat-system-msg">Connected to session. Messages are peer-to-peer encrypted.</div>
+            <div class="chat-system-msg">Session connected. Peer-to-peer encryption verified.</div>
           </div>
           <div class="chat-input-bar">
             <input type="text" id="chatInput" placeholder="Type a message..." maxlength="300">
@@ -259,7 +349,7 @@
     <!-- File Transfer Toast / Progress Bar -->
     <div class="transfer-toast" id="transferToast" style="display: none;">
       <div class="toast-header">
-        <span id="toastFileName">transferring_file.zip</span>
+        <span id="toastFileName">transfer_package.zip</span>
         <span id="toastPercent">0%</span>
       </div>
       <div class="toast-progress-track">
@@ -271,35 +361,35 @@
     <div class="modal-backdrop" id="addHospitalModal" style="display: none;">
       <div class="modal">
         <div class="modal-header">
-          <h3>Add Hospital to Address Book</h3>
+          <h3>Add Workstation to Directory</h3>
           <button class="modal-close" id="closeAddHospitalBtn">✕</button>
         </div>
         <div class="modal-body">
-          <label for="hospitalNameInput">Hospital Name & Terminal</label>
-          <input type="text" id="hospitalNameInput" placeholder="e.g. St. Paul Hospital - Server 1">
+          <label for="hospitalNameInput">Workstation / Hospital Name</label>
+          <input type="text" id="hospitalNameInput" placeholder="e.g. St. Paul Hospital - Main Server">
 
-          <label for="hospitalCodeInput">6-Digit Session Code</label>
+          <label for="hospitalCodeInput">6-Digit Terminal Address</label>
           <input type="text" id="hospitalCodeInput" placeholder="e.g. 582-914" maxlength="7">
 
-          <label for="hospitalPasswordInput">Unattended Password (Optional)</label>
-          <input type="password" id="hospitalPasswordInput" placeholder="Saved for 1-click after-hours connect">
+          <label for="hospitalPasswordInput">Unattended Master Password (Optional)</label>
+          <input type="password" id="hospitalPasswordInput" placeholder="Optional for automated access">
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" id="cancelAddHospitalBtn">Cancel</button>
-          <button class="btn btn-primary" id="saveHospitalBtn">Save Hospital</button>
+          <button class="btn btn-primary" id="saveHospitalBtn">Save Workstation</button>
         </div>
       </div>
     </div>
 
-    <!-- Unattended Password Prompt Modal (When connecting to an unattended computer) -->
+    <!-- Unattended Password Prompt Modal -->
     <div class="modal-backdrop" id="passwordPromptModal" style="display: none;">
       <div class="modal">
         <div class="modal-header">
-          <h3>Unattended Access Required</h3>
+          <h3>Unattended Authorization Required</h3>
           <button class="modal-close" id="closePassPromptBtn">✕</button>
         </div>
         <div class="modal-body">
-          <p class="modal-hint" style="margin-bottom:12px;">This hospital terminal is configured for unattended support. Enter the master password to connect:</p>
+          <p class="modal-hint" style="margin-bottom:12px;">This terminal is protected by an unattended master password. Enter authorization password to proceed:</p>
           <input type="password" id="targetUnattendedPassInput" placeholder="Enter Master Password">
         </div>
         <div class="modal-footer">
@@ -309,17 +399,17 @@
       </div>
     </div>
 
-    <!-- Settings Modal -->
+    <!-- Network Settings Modal -->
     <div class="modal-backdrop" id="settingsModal" style="display: none;">
       <div class="modal">
         <div class="modal-header">
-          <h3>Signaling Server Settings</h3>
+          <h3>Signaling Configuration</h3>
           <button class="modal-close" id="closeSettingsBtn">✕</button>
         </div>
         <div class="modal-body">
-          <label for="signalingUrlInput">Signaling Server URL</label>
+          <label for="signalingUrlInput">Signaling Server Endpoint</label>
           <input type="text" id="signalingUrlInput" value="ws://localhost:9000">
-          <p class="modal-hint">Enter your server domain or IP (e.g., <code>ws://192.168.1.100:9000</code> or <code>wss://your-cloud-server.com</code>).</p>
+          <p class="modal-hint">Specify the WebSocket URL for peer matchmaking (e.g., <code>ws://192.168.1.100:9000</code> or your public domain).</p>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>

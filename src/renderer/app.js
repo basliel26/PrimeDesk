@@ -1,6 +1,6 @@
-// PrimeDesk Core Engine: Full AnyDesk Feature Suite
-// Features: Screen Share, Remote Input, P2P Chat, File Transfer, Clipboard Sync, 
-// Unattended Password Access, Address Book, Special Keys & Privacy Blackout.
+// PrimeDesk Core Engine: Enterprise Remote Desktop Suite
+// Features: Auto-Ready, AnyDesk-style Incoming Accept/Decline, Unattended Password,
+// Clipboard Sync, P2P File Transfer, Support Chat, Special Keys & Privacy Blackout.
 // Author: Basliel Getu
 
 const ICE_SERVERS = {
@@ -25,7 +25,6 @@ class PrimeDeskApp {
     this.role = null; // 'host' | 'viewer'
     this.myCode = this.generateCode();
     this.signalingUrl = localStorage.getItem('primedesk_signaling_url') || 'ws://localhost:9000';
-    this.isHosting = false;
     this.remoteHostResolution = { width: 1920, height: 1080 };
 
     // In-Session Features State
@@ -40,6 +39,7 @@ class PrimeDeskApp {
     this.unattendedEnabled = localStorage.getItem('primedesk_unattended_enabled') === 'true';
     this.unattendedPassHash = localStorage.getItem('primedesk_unattended_hash') || '';
     this.pendingConnectCode = null;
+    this.savedPass = null;
 
     // Address Book
     this.addressBook = JSON.parse(localStorage.getItem('primedesk_address_book') || '[]');
@@ -90,8 +90,6 @@ class PrimeDeskApp {
       // Host side
       mySessionCode: document.getElementById('mySessionCode'),
       copyCodeBtn: document.getElementById('copyCodeBtn'),
-      toggleHostBtn: document.getElementById('toggleHostBtn'),
-      hostStatusPill: document.getElementById('hostStatusPill'),
       unattendedToggle: document.getElementById('unattendedToggle'),
       unattendedInputBox: document.getElementById('unattendedInputBox'),
       unattendedPasswordInput: document.getElementById('unattendedPasswordInput'),
@@ -113,6 +111,12 @@ class PrimeDeskApp {
       hospitalCodeInput: document.getElementById('hospitalCodeInput'),
       hospitalPasswordInput: document.getElementById('hospitalPasswordInput'),
 
+      // Incoming Request Modal
+      incomingModal: document.getElementById('incomingModal'),
+      incomingCallerText: document.getElementById('incomingCallerText'),
+      acceptBtn: document.getElementById('acceptBtn'),
+      declineBtn: document.getElementById('declineBtn'),
+
       // Password Prompt Modal
       passwordPromptModal: document.getElementById('passwordPromptModal'),
       closePassPromptBtn: document.getElementById('closePassPromptBtn'),
@@ -131,6 +135,7 @@ class PrimeDeskApp {
       remoteVideo: document.getElementById('remoteVideo'),
       remoteSessionTitle: document.getElementById('remoteSessionTitle'),
       fitScreenBtn: document.getElementById('fitScreenBtn'),
+      fitBtnText: document.getElementById('fitBtnText'),
       transferFileBtn: document.getElementById('transferFileBtn'),
       filePicker: document.getElementById('filePicker'),
       toggleChatBtn: document.getElementById('toggleChatBtn'),
@@ -144,6 +149,7 @@ class PrimeDeskApp {
       keyDesktopBtn: document.getElementById('keyDesktopBtn'),
       keyLockBtn: document.getElementById('keyLockBtn'),
       privacyToggleBtn: document.getElementById('privacyToggleBtn'),
+      privacyBtnText: document.getElementById('privacyBtnText'),
 
       // Chat
       chatDrawer: document.getElementById('chatDrawer'),
@@ -164,7 +170,7 @@ class PrimeDeskApp {
     this.dom.unattendedToggle.checked = this.unattendedEnabled;
     if (this.unattendedEnabled) {
       this.dom.unattendedInputBox.style.display = 'flex';
-      this.dom.unattendedPasswordInput.placeholder = '●●●●●● (Password set)';
+      this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
     }
   }
 
@@ -203,9 +209,9 @@ class PrimeDeskApp {
       }
       this.unattendedPassHash = await this.hashPassword(pass);
       localStorage.setItem('primedesk_unattended_hash', this.unattendedPassHash);
-      alert('Unattended access password saved successfully.');
+      alert('Unattended access password saved.');
       this.dom.unattendedPasswordInput.value = '';
-      this.dom.unattendedPasswordInput.placeholder = '●●●●●● (Password active)';
+      this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
     });
 
     // Copy code button
@@ -216,12 +222,20 @@ class PrimeDeskApp {
       setTimeout(() => { this.dom.copyCodeBtn.innerHTML = originalText; }, 1500);
     });
 
-    // Toggle Host Button
-    this.dom.toggleHostBtn.addEventListener('click', () => {
-      if (this.isHosting) {
-        this.stopHosting();
-      } else {
-        this.startHosting();
+    // Incoming Request Accept / Decline
+    this.dom.acceptBtn.addEventListener('click', () => {
+      this.dom.incomingModal.style.display = 'none';
+      this.role = 'host';
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'accept-connection' }));
+      }
+      this.initiateHostStream();
+    });
+
+    this.dom.declineBtn.addEventListener('click', () => {
+      this.dom.incomingModal.style.display = 'none';
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'decline-connection', reason: 'Declined by hospital operator' }));
       }
     });
 
@@ -232,10 +246,10 @@ class PrimeDeskApp {
     this.dom.connectBtn.addEventListener('click', () => {
       const code = this.dom.remoteCodeInput.value.replace(/\D/g, '');
       if (code.length !== 6) {
-        alert('Please enter a valid 6-digit hospital code.');
+        alert('Please enter a valid 6-digit terminal address.');
         return;
       }
-      this.connectToRemote(code);
+      this.requestConnection(code);
     });
 
     // Format input as XXX-XXX
@@ -283,7 +297,7 @@ class PrimeDeskApp {
       const pass = this.dom.hospitalPasswordInput.value.trim();
 
       if (!name || code.length !== 6) {
-        alert('Please enter a valid hospital name and 6-digit code.');
+        alert('Please specify a valid workstation name and 6-digit address.');
         return;
       }
 
@@ -317,7 +331,6 @@ class PrimeDeskApp {
       this.dom.passwordPromptModal.style.display = 'none';
       this.dom.targetUnattendedPassInput.value = '';
 
-      // Send auth verification to host
       this.sendSignal({ type: 'auth-response', hash });
     });
 
@@ -334,7 +347,7 @@ class PrimeDeskApp {
     // Fit Screen Toggle
     this.dom.fitScreenBtn.addEventListener('click', () => {
       const isFit = this.dom.remoteVideo.classList.toggle('fit-screen');
-      this.dom.fitScreenBtn.textContent = isFit ? '⛶ 1:1' : '⛶ Fit';
+      this.dom.fitBtnText.textContent = isFit ? '1:1' : 'Fit';
     });
 
     // Special Keys Dropdown
@@ -353,7 +366,7 @@ class PrimeDeskApp {
     // Privacy Mode Toggle
     this.dom.privacyToggleBtn.addEventListener('click', () => {
       this.privacyModeActive = !this.privacyModeActive;
-      this.dom.privacyToggleBtn.textContent = this.privacyModeActive ? '🕶️ Privacy Screen: ON' : '🕶️ Privacy Screen: OFF';
+      this.dom.privacyBtnText.textContent = this.privacyModeActive ? 'Privacy: ON' : 'Privacy: OFF';
       this.dom.privacyToggleBtn.style.color = this.privacyModeActive ? '#10b981' : '#f1f5f9';
       this.sendInputCommand(`PRIVACY ${this.privacyModeActive ? '1' : '0'}`);
     });
@@ -417,26 +430,27 @@ class PrimeDeskApp {
         <div class="hospital-card-top">
           <div>
             <div class="hospital-card-title">${h.name}</div>
-            <div class="hospital-card-code">Code: ${this.formatCode(h.code)}</div>
+            <div class="hospital-card-code">${this.formatCode(h.code)}</div>
           </div>
-          <span class="hospital-card-badge">${h.password ? 'Unattended' : 'Attended'}</span>
+          <span class="hospital-card-badge">${h.password ? 'Unattended' : 'Interactive'}</span>
         </div>
         <div class="hospital-card-actions">
           <button class="btn btn-connect connect-hospital-btn" data-code="${h.code}" data-pass="${h.password}">
-            ⚡ Connect
+            Connect
           </button>
-          <button class="btn-delete-hospital delete-hospital-btn" data-id="${h.id}">✕</button>
+          <button class="btn-delete-hospital delete-hospital-btn" data-id="${h.id}" title="Remove Workstation">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
         </div>
       `;
       this.dom.hospitalCardsGrid.appendChild(card);
     });
 
-    // Bind connect and delete buttons
     document.querySelectorAll('.connect-hospital-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const code = e.currentTarget.getAttribute('data-code');
         const savedPass = e.currentTarget.getAttribute('data-pass');
-        this.connectToRemote(code, savedPass);
+        this.requestConnection(code, savedPass);
       });
     });
 
@@ -462,9 +476,8 @@ class PrimeDeskApp {
 
       this.ws.onopen = () => {
         this.updateServerStatus(true, 'Signaling: Online');
-        if (this.isHosting) {
-          this.registerHostOnServer();
-        }
+        // Automatically register terminal address immediately upon opening app!
+        this.registerHostOnServer();
       };
 
       this.ws.onmessage = (event) => {
@@ -498,20 +511,38 @@ class PrimeDeskApp {
     this.dom.serverStatusText.textContent = text;
   }
 
+  registerHostOnServer() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'register-host', code: this.myCode }));
+    }
+  }
+
   handleSignalingMessage(msg) {
     switch (msg.type) {
       case 'registered':
-        console.log(`[Host] Registered session code: ${msg.code}`);
+        console.log(`[Terminal] Registered address: ${msg.code}`);
         break;
 
-      case 'viewer-joined':
-        console.log('[Host] Remote viewer connecting...');
+      case 'incoming-connection':
+        console.log('[Host] Incoming connection request received');
         if (this.unattendedEnabled && this.unattendedPassHash) {
-          // Require password authorization before starting stream
+          // If unattended access active, check password or request auth
           this.sendSignal({ type: 'auth-required' });
         } else {
-          this.initiateHostStream();
+          // Show the AnyDesk-style incoming accept/decline prompt!
+          this.dom.incomingCallerText.textContent = `${msg.clientName || 'EHR Support Technician'} is requesting remote control.`;
+          this.dom.incomingModal.style.display = 'flex';
         }
+        break;
+
+      case 'connection-accepted':
+        console.log('[Viewer] Hospital accepted connection. Initializing peer...');
+        this.startViewerPeer();
+        break;
+
+      case 'connection-declined':
+        alert(`Session rejected: ${msg.reason || 'Declined by remote hospital'}`);
+        this.endSession();
         break;
 
       case 'signal':
@@ -529,32 +560,11 @@ class PrimeDeskApp {
     }
   }
 
-  // HOST IMPLEMENTATION
-  async startHosting() {
-    this.role = 'host';
-    this.isHosting = true;
-    this.dom.toggleHostBtn.innerHTML = '<span class="btn-icon">■</span> Stop Sharing';
-    this.dom.toggleHostBtn.classList.remove('btn-primary');
-    this.dom.toggleHostBtn.classList.add('btn-danger');
-    this.dom.hostStatusPill.classList.add('active');
-    this.dom.hostStatusPill.innerHTML = '<span class="dot"></span> Status: Ready & Waiting for Vendor';
-
-    if (window.primeDeskAPI) {
-      await window.primeDeskAPI.startInputWorker();
-    }
-
-    this.registerHostOnServer();
-  }
-
-  registerHostOnServer() {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'register-host', code: this.myCode }));
-    }
-  }
-
+  // HOST STREAM IMPLEMENTATION
   async initiateHostStream() {
     try {
       if (window.primeDeskAPI) {
+        await window.primeDeskAPI.startInputWorker();
         await window.primeDeskAPI.setPillMode();
       }
       this.dom.appHeader.style.display = 'none';
@@ -613,8 +623,8 @@ class PrimeDeskApp {
       this.startClipboardPolling();
 
     } catch (err) {
-      console.error('[Host] Failed to capture screen:', err);
-      alert('Could not capture desktop screen: ' + err.message);
+      console.error('[Host] Failed to initialize stream:', err);
+      alert('Could not start screen capture: ' + err.message);
       this.stopHosting();
     }
   }
@@ -716,12 +726,7 @@ class PrimeDeskApp {
   }
 
   stopHosting() {
-    this.isHosting = false;
-    this.dom.toggleHostBtn.innerHTML = '<span class="btn-icon">▶</span> Start Sharing Session';
-    this.dom.toggleHostBtn.classList.remove('btn-danger');
-    this.dom.toggleHostBtn.classList.add('btn-primary');
-    this.dom.hostStatusPill.classList.remove('active');
-    this.dom.hostStatusPill.innerHTML = '<span class="dot"></span> Status: Standby';
+    this.role = null;
 
     if (this.clipboardPollInterval) {
       clearInterval(this.clipboardPollInterval);
@@ -731,6 +736,7 @@ class PrimeDeskApp {
     if (window.primeDeskAPI) {
       window.primeDeskAPI.restoreNormalMode();
       window.primeDeskAPI.setPrivacyMode(false);
+      window.primeDeskAPI.stopInputWorker();
     }
     this.dom.floatingPillView.style.display = 'none';
     this.dom.appHeader.style.display = 'flex';
@@ -750,18 +756,28 @@ class PrimeDeskApp {
       this.peerConnection = null;
     }
 
-    if (window.primeDeskAPI) {
-      window.primeDeskAPI.stopInputWorker();
-    }
+    // Re-register terminal code to stay ready
+    this.registerHostOnServer();
   }
 
-  // VIEWER IMPLEMENTATION
-  async connectToRemote(code, savedPass = null) {
+  // VIEWER INITIATION
+  requestConnection(code, savedPass = null) {
     this.role = 'viewer';
     this.pendingConnectCode = code;
     this.savedPass = savedPass;
-    console.log(`[Viewer] Connecting to: ${code}`);
 
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'request-connect',
+        code,
+        clientName: 'EHR Support Technician'
+      }));
+    } else {
+      alert('Signaling server is not connected!');
+    }
+  }
+
+  startViewerPeer() {
     this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
 
     this.peerConnection.onicecandidate = (e) => {
@@ -776,7 +792,7 @@ class PrimeDeskApp {
       this.dom.dashboardView.style.display = 'none';
       this.dom.addressBookView.style.display = 'none';
       this.dom.remoteViewport.style.display = 'flex';
-      this.dom.remoteSessionTitle.textContent = `Connected to Hospital (${this.formatCode(code)})`;
+      this.dom.remoteSessionTitle.textContent = `Connected: ${this.formatCode(this.pendingConnectCode)}`;
 
       this.startPingMonitor();
       this.startClipboardPolling();
@@ -785,7 +801,7 @@ class PrimeDeskApp {
     this.peerConnection.ondatachannel = (e) => {
       if (e.channel.label === 'input') {
         this.inputChannel = e.channel;
-        this.inputChannel.onopen = () => console.log('[Viewer] Input DataChannel Open');
+        this.inputChannel.onopen = () => console.log('[Viewer] Input Channel Open');
       } else if (e.channel.label === 'chat') {
         this.chatChannel = e.channel;
         this.setupChatChannel(this.chatChannel);
@@ -797,12 +813,6 @@ class PrimeDeskApp {
         this.setupClipboardChannel(this.clipboardChannel);
       }
     };
-
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'join-session', code }));
-    } else {
-      alert('Signaling server is not connected!');
-    }
   }
 
   startPingMonitor() {
@@ -826,25 +836,26 @@ class PrimeDeskApp {
 
   async handlePeerSignal(data) {
     if (data.type === 'auth-required') {
-      // Unattended access authorization requested by host
       if (this.savedPass) {
-        // Auto-authenticate with saved password from address book!
         this.sendSignal({ type: 'auth-response', hash: this.savedPass });
       } else {
-        // Prompt technician for password
         this.dom.passwordPromptModal.style.display = 'flex';
       }
       return;
     }
 
     if (data.type === 'auth-response') {
-      // Host side verifies password hash
       if (data.hash === this.unattendedPassHash) {
         console.log('[Host] Unattended access authorized. Starting stream...');
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'accept-connection' }));
+        }
         this.initiateHostStream();
       } else {
         alert('Invalid unattended access password.');
-        this.stopHosting();
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'decline-connection', reason: 'Invalid unattended password' }));
+        }
       }
       return;
     }
