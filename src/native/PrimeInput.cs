@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Diagnostics;
 
 namespace PrimeDesk
 {
@@ -15,6 +16,9 @@ namespace PrimeDesk
         [DllImport("user32.dll")]
         static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
 
+        [DllImport("user32.dll")]
+        static extern bool LockWorkStation();
+
         const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         const uint MOUSEEVENTF_LEFTUP = 0x0004;
         const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
@@ -23,6 +27,14 @@ namespace PrimeDesk
         const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
         const uint MOUSEEVENTF_WHEEL = 0x0800;
         const uint KEYEVENTF_KEYUP = 0x0002;
+
+        const byte VK_LWIN = 0x5B;
+        const byte VK_D = 0x44;
+        const byte VK_CONTROL = 0x11;
+        const byte VK_SHIFT = 0x10;
+        const byte VK_ESCAPE = 0x1B;
+        const byte VK_TAB = 0x09;
+        const byte VK_MENU = 0x12; // Alt
 
         static void Main(string[] args)
         {
@@ -78,6 +90,32 @@ namespace PrimeDesk
                     {
                         byte vk = byte.Parse(parts[1]);
                         keybd_event(vk, 0, KEYEVENTF_KEYUP, 0);
+                    }
+                    else if (cmd == "SPECIAL" && parts.Length >= 2)
+                    {
+                        string action = parts[1].ToUpper();
+                        if (action == "TASKMGR")
+                        {
+                            // Open Task Manager via Ctrl+Shift+Esc
+                            keybd_event(VK_CONTROL, 0, 0, 0);
+                            keybd_event(VK_SHIFT, 0, 0, 0);
+                            keybd_event(VK_ESCAPE, 0, 0, 0);
+                            keybd_event(VK_ESCAPE, 0, KEYEVENTF_KEYUP, 0);
+                            keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0);
+                            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+                        }
+                        else if (action == "DESKTOP")
+                        {
+                            // Win + D
+                            keybd_event(VK_LWIN, 0, 0, 0);
+                            keybd_event(VK_D, 0, 0, 0);
+                            keybd_event(VK_D, 0, KEYEVENTF_KEYUP, 0);
+                            keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, 0);
+                        }
+                        else if (action == "LOCK")
+                        {
+                            LockWorkStation();
+                        }
                     }
                     else if (cmd == "QUIT")
                     {

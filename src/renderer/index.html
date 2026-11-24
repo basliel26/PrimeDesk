@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PrimeDesk - Hospital Remote Support</title>
+  <title>PrimeDesk - Hospital Remote Support Suite</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <div class="app-container" id="appContainer">
 
-    <!-- Normal Header (hidden when in floating pill mode) -->
+    <!-- Normal Header -->
     <header class="app-header" id="appHeader">
       <div class="brand">
         <div class="brand-logo">
@@ -26,6 +26,12 @@
         </div>
       </div>
 
+      <!-- Navigation Tabs -->
+      <nav class="header-nav">
+        <button class="nav-tab active" id="tabSupportBtn">⚡ Remote Support</button>
+        <button class="nav-tab" id="tabAddressBookBtn">🏥 Address Book (<span id="addressBookCount">0</span>)</button>
+      </nav>
+
       <div class="header-right">
         <div class="server-badge" id="serverStatusBadge">
           <span class="status-dot disconnected" id="serverDot"></span>
@@ -40,7 +46,7 @@
       </div>
     </header>
 
-    <!-- Main Dashboard View -->
+    <!-- TAB 1: Support View -->
     <main class="dashboard-view" id="dashboardView">
       <div class="cards-grid">
         
@@ -70,6 +76,19 @@
                 </svg>
                 Copy
               </button>
+            </div>
+
+            <!-- Unattended Access Section -->
+            <div class="unattended-section">
+              <label class="toggle-switch">
+                <input type="checkbox" id="unattendedToggle">
+                <span class="slider"></span>
+                <span class="toggle-text">Enable Unattended Access (After-Hours)</span>
+              </label>
+              <div class="unattended-input-box" id="unattendedInputBox" style="display: none;">
+                <input type="password" id="unattendedPasswordInput" placeholder="Set Unattended Password" autocomplete="new-password">
+                <button class="small-btn" id="saveUnattendedPassBtn">Save</button>
+              </div>
             </div>
 
             <div class="host-controls">
@@ -124,19 +143,36 @@
             </button>
 
             <div class="features-list">
-              <div class="feature-item">
-                <span class="check">✓</span> Real-time mouse & keyboard control
-              </div>
-              <div class="feature-item">
-                <span class="check">✓</span> Instant P2P File Transfer & Chat
-              </div>
-              <div class="feature-item">
-                <span class="check">✓</span> Encrypted P2P with zero subscription fees
-              </div>
+              <div class="feature-item"><span class="check">✓</span> Real-time mouse & keyboard + Clipboard Sync</div>
+              <div class="feature-item"><span class="check">✓</span> Unattended Password Support (2 AM Access)</div>
+              <div class="feature-item"><span class="check">✓</span> P2P File Transfer, Chat & Privacy Blackout</div>
             </div>
           </div>
         </div>
 
+      </div>
+    </main>
+
+    <!-- TAB 2: Address Book View -->
+    <main class="addressbook-view" id="addressBookView" style="display: none;">
+      <div class="addressbook-container">
+        <div class="addressbook-header">
+          <div>
+            <h2>Hospital Address Book</h2>
+            <p>Saved client hospitals for quick 1-click remote support</p>
+          </div>
+          <button class="btn btn-primary btn-add-hospital" id="addHospitalBtn">+ Add New Hospital</button>
+        </div>
+
+        <div class="hospital-cards-grid" id="hospitalCardsGrid">
+          <!-- Hospital cards dynamically injected here -->
+        </div>
+
+        <div class="empty-addressbook" id="emptyAddressBook" style="display: none;">
+          <div class="empty-icon">🏥</div>
+          <h3>No Hospitals Added Yet</h3>
+          <p>Click "Add New Hospital" to save frequently supported EHR terminals.</p>
+        </div>
       </div>
     </main>
 
@@ -166,9 +202,25 @@
           <span class="pulse-indicator"></span>
           <span class="toolbar-title" id="remoteSessionTitle">Connected to Hospital</span>
           <span class="stat-pill" id="remoteStats">0 ms | 60 FPS</span>
+          <span class="clipboard-indicator" title="Clipboard Sync Active">📋 Synced</span>
         </div>
 
         <div class="toolbar-actions">
+          <!-- Special Keys Menu -->
+          <div class="dropdown-wrapper">
+            <button class="tool-btn" id="specialKeysBtn">⌨️ Keys ▼</button>
+            <div class="dropdown-menu" id="specialKeysMenu" style="display: none;">
+              <button class="dropdown-item" id="keyTaskMgrBtn">📊 Task Manager (Ctrl+Shift+Esc)</button>
+              <button class="dropdown-item" id="keyDesktopBtn">🪟 Show Desktop (Win+D)</button>
+              <button class="dropdown-item" id="keyLockBtn">🔒 Lock Workstation (Win+L)</button>
+            </div>
+          </div>
+
+          <!-- Privacy Black Screen Toggle -->
+          <button class="tool-btn" id="privacyToggleBtn" title="Black out physical hospital screen">
+            🕶️ Privacy Screen: OFF
+          </button>
+
           <button class="tool-btn" id="fitScreenBtn" title="Fit to Window">⛶ Fit</button>
           <button class="tool-btn" id="transferFileBtn" title="Send File to Hospital">📁 Send File</button>
           <button class="tool-btn" id="toggleChatBtn" title="Open Chat">
@@ -212,6 +264,48 @@
       </div>
       <div class="toast-progress-track">
         <div class="toast-progress-bar" id="toastProgressBar"></div>
+      </div>
+    </div>
+
+    <!-- Add Hospital Modal -->
+    <div class="modal-backdrop" id="addHospitalModal" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Add Hospital to Address Book</h3>
+          <button class="modal-close" id="closeAddHospitalBtn">✕</button>
+        </div>
+        <div class="modal-body">
+          <label for="hospitalNameInput">Hospital Name & Terminal</label>
+          <input type="text" id="hospitalNameInput" placeholder="e.g. St. Paul Hospital - Server 1">
+
+          <label for="hospitalCodeInput">6-Digit Session Code</label>
+          <input type="text" id="hospitalCodeInput" placeholder="e.g. 582-914" maxlength="7">
+
+          <label for="hospitalPasswordInput">Unattended Password (Optional)</label>
+          <input type="password" id="hospitalPasswordInput" placeholder="Saved for 1-click after-hours connect">
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="cancelAddHospitalBtn">Cancel</button>
+          <button class="btn btn-primary" id="saveHospitalBtn">Save Hospital</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Unattended Password Prompt Modal (When connecting to an unattended computer) -->
+    <div class="modal-backdrop" id="passwordPromptModal" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Unattended Access Required</h3>
+          <button class="modal-close" id="closePassPromptBtn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-hint" style="margin-bottom:12px;">This hospital terminal is configured for unattended support. Enter the master password to connect:</p>
+          <input type="password" id="targetUnattendedPassInput" placeholder="Enter Master Password">
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="cancelPassPromptBtn">Cancel</button>
+          <button class="btn btn-primary" id="submitPassPromptBtn">Authorize & Connect</button>
+        </div>
       </div>
     </div>
 

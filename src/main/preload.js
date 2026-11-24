@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('primeDeskAPI', {
   stopInputWorker: () => ipcRenderer.invoke('stop-input-worker'),
   setPillMode: () => ipcRenderer.invoke('set-pill-mode'),
   restoreNormalMode: () => ipcRenderer.invoke('restore-normal-mode'),
+  readClipboard: () => ipcRenderer.invoke('read-clipboard'),
+  writeClipboard: (text) => ipcRenderer.invoke('write-clipboard', text),
+  setPrivacyMode: (enabled) => ipcRenderer.invoke('set-privacy-mode', enabled),
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window')

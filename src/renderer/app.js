@@ -1,4 +1,6 @@
-// PrimeDesk Core Engine with P2P Chat, File Transfer & Floating Pill
+// PrimeDesk Core Engine: Full AnyDesk Feature Suite
+// Features: Screen Share, Remote Input, P2P Chat, File Transfer, Clipboard Sync, 
+// Unattended Password Access, Address Book, Special Keys & Privacy Blackout.
 // Author: Basliel Getu
 
 const ICE_SERVERS = {
@@ -18,6 +20,7 @@ class PrimeDeskApp {
     this.inputChannel = null;
     this.chatChannel = null;
     this.fileChannel = null;
+    this.clipboardChannel = null;
     this.localStream = null;
     this.role = null; // 'host' | 'viewer'
     this.myCode = this.generateCode();
@@ -25,13 +28,25 @@ class PrimeDeskApp {
     this.isHosting = false;
     this.remoteHostResolution = { width: 1920, height: 1080 };
 
-    // Chat & File Transfer State
+    // In-Session Features State
     this.unreadChatCount = 0;
     this.incomingFile = null;
     this.pingInterval = null;
+    this.clipboardPollInterval = null;
+    this.lastCopiedText = '';
+    this.privacyModeActive = false;
+
+    // Unattended Access State
+    this.unattendedEnabled = localStorage.getItem('primedesk_unattended_enabled') === 'true';
+    this.unattendedPassHash = localStorage.getItem('primedesk_unattended_hash') || '';
+    this.pendingConnectCode = null;
+
+    // Address Book
+    this.addressBook = JSON.parse(localStorage.getItem('primedesk_address_book') || '[]');
 
     this.initDOMElements();
     this.bindEvents();
+    this.renderAddressBook();
     this.connectSignaling();
   }
 
@@ -43,6 +58,13 @@ class PrimeDeskApp {
   formatCode(code) {
     if (!code || code.length !== 6) return code;
     return `${code.slice(0, 3)} ${code.slice(3)}`;
+  }
+
+  async hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password + "_primedesk_salt");
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   initDOMElements() {
@@ -57,21 +79,54 @@ class PrimeDeskApp {
       cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
       saveSettingsBtn: document.getElementById('saveSettingsBtn'),
       signalingUrlInput: document.getElementById('signalingUrlInput'),
+
+      // Navigation
+      tabSupportBtn: document.getElementById('tabSupportBtn'),
+      tabAddressBookBtn: document.getElementById('tabAddressBookBtn'),
+      addressBookCount: document.getElementById('addressBookCount'),
+      dashboardView: document.getElementById('dashboardView'),
+      addressBookView: document.getElementById('addressBookView'),
       
+      // Host side
       mySessionCode: document.getElementById('mySessionCode'),
       copyCodeBtn: document.getElementById('copyCodeBtn'),
       toggleHostBtn: document.getElementById('toggleHostBtn'),
       hostStatusPill: document.getElementById('hostStatusPill'),
+      unattendedToggle: document.getElementById('unattendedToggle'),
+      unattendedInputBox: document.getElementById('unattendedInputBox'),
+      unattendedPasswordInput: document.getElementById('unattendedPasswordInput'),
+      saveUnattendedPassBtn: document.getElementById('saveUnattendedPassBtn'),
 
+      // Viewer side
       remoteCodeInput: document.getElementById('remoteCodeInput'),
       connectBtn: document.getElementById('connectBtn'),
 
-      dashboardView: document.getElementById('dashboardView'),
+      // Address Book DOM
+      addHospitalBtn: document.getElementById('addHospitalBtn'),
+      hospitalCardsGrid: document.getElementById('hospitalCardsGrid'),
+      emptyAddressBook: document.getElementById('emptyAddressBook'),
+      addHospitalModal: document.getElementById('addHospitalModal'),
+      closeAddHospitalBtn: document.getElementById('closeAddHospitalBtn'),
+      cancelAddHospitalBtn: document.getElementById('cancelAddHospitalBtn'),
+      saveHospitalBtn: document.getElementById('saveHospitalBtn'),
+      hospitalNameInput: document.getElementById('hospitalNameInput'),
+      hospitalCodeInput: document.getElementById('hospitalCodeInput'),
+      hospitalPasswordInput: document.getElementById('hospitalPasswordInput'),
+
+      // Password Prompt Modal
+      passwordPromptModal: document.getElementById('passwordPromptModal'),
+      closePassPromptBtn: document.getElementById('closePassPromptBtn'),
+      cancelPassPromptBtn: document.getElementById('cancelPassPromptBtn'),
+      submitPassPromptBtn: document.getElementById('submitPassPromptBtn'),
+      targetUnattendedPassInput: document.getElementById('targetUnattendedPassInput'),
+
+      // Floating pill
       floatingPillView: document.getElementById('floatingPillView'),
       pillStopBtn: document.getElementById('pillStopBtn'),
       pillChatBtn: document.getElementById('pillChatBtn'),
       pillChatBadge: document.getElementById('pillChatBadge'),
 
+      // Remote Viewport
       remoteViewport: document.getElementById('remoteViewport'),
       remoteVideo: document.getElementById('remoteVideo'),
       remoteSessionTitle: document.getElementById('remoteSessionTitle'),
@@ -83,13 +138,21 @@ class PrimeDeskApp {
       fullscreenBtn: document.getElementById('fullscreenBtn'),
       disconnectBtn: document.getElementById('disconnectBtn'),
       remoteStats: document.getElementById('remoteStats'),
+      specialKeysBtn: document.getElementById('specialKeysBtn'),
+      specialKeysMenu: document.getElementById('specialKeysMenu'),
+      keyTaskMgrBtn: document.getElementById('keyTaskMgrBtn'),
+      keyDesktopBtn: document.getElementById('keyDesktopBtn'),
+      keyLockBtn: document.getElementById('keyLockBtn'),
+      privacyToggleBtn: document.getElementById('privacyToggleBtn'),
 
+      // Chat
       chatDrawer: document.getElementById('chatDrawer'),
       closeChatBtn: document.getElementById('closeChatBtn'),
       chatMessages: document.getElementById('chatMessages'),
       chatInput: document.getElementById('chatInput'),
       sendChatBtn: document.getElementById('sendChatBtn'),
 
+      // File transfer toast
       transferToast: document.getElementById('transferToast'),
       toastFileName: document.getElementById('toastFileName'),
       toastPercent: document.getElementById('toastPercent'),
@@ -98,9 +161,53 @@ class PrimeDeskApp {
 
     this.dom.mySessionCode.textContent = this.formatCode(this.myCode);
     this.dom.signalingUrlInput.value = this.signalingUrl;
+    this.dom.unattendedToggle.checked = this.unattendedEnabled;
+    if (this.unattendedEnabled) {
+      this.dom.unattendedInputBox.style.display = 'flex';
+      this.dom.unattendedPasswordInput.placeholder = '●●●●●● (Password set)';
+    }
   }
 
   bindEvents() {
+    // Tab switching
+    this.dom.tabSupportBtn.addEventListener('click', () => {
+      this.dom.tabSupportBtn.classList.add('active');
+      this.dom.tabAddressBookBtn.classList.remove('active');
+      this.dom.dashboardView.style.display = 'flex';
+      this.dom.addressBookView.style.display = 'none';
+    });
+
+    this.dom.tabAddressBookBtn.addEventListener('click', () => {
+      this.dom.tabAddressBookBtn.classList.add('active');
+      this.dom.tabSupportBtn.classList.remove('active');
+      this.dom.dashboardView.style.display = 'none';
+      this.dom.addressBookView.style.display = 'flex';
+    });
+
+    // Unattended access toggle
+    this.dom.unattendedToggle.addEventListener('change', (e) => {
+      this.unattendedEnabled = e.target.checked;
+      localStorage.setItem('primedesk_unattended_enabled', this.unattendedEnabled);
+      this.dom.unattendedInputBox.style.display = this.unattendedEnabled ? 'flex' : 'none';
+      if (!this.unattendedEnabled) {
+        this.unattendedPassHash = '';
+        localStorage.removeItem('primedesk_unattended_hash');
+      }
+    });
+
+    this.dom.saveUnattendedPassBtn.addEventListener('click', async () => {
+      const pass = this.dom.unattendedPasswordInput.value.trim();
+      if (!pass) {
+        alert('Please enter an unattended master password.');
+        return;
+      }
+      this.unattendedPassHash = await this.hashPassword(pass);
+      localStorage.setItem('primedesk_unattended_hash', this.unattendedPassHash);
+      alert('Unattended access password saved successfully.');
+      this.dom.unattendedPasswordInput.value = '';
+      this.dom.unattendedPasswordInput.placeholder = '●●●●●● (Password active)';
+    });
+
     // Copy code button
     this.dom.copyCodeBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(this.myCode);
@@ -160,6 +267,60 @@ class PrimeDeskApp {
       }
     });
 
+    // Address Book Modal
+    this.dom.addHospitalBtn.addEventListener('click', () => {
+      this.dom.addHospitalModal.style.display = 'flex';
+    });
+    this.dom.closeAddHospitalBtn.addEventListener('click', () => {
+      this.dom.addHospitalModal.style.display = 'none';
+    });
+    this.dom.cancelAddHospitalBtn.addEventListener('click', () => {
+      this.dom.addHospitalModal.style.display = 'none';
+    });
+    this.dom.saveHospitalBtn.addEventListener('click', async () => {
+      const name = this.dom.hospitalNameInput.value.trim();
+      const code = this.dom.hospitalCodeInput.value.replace(/\D/g, '');
+      const pass = this.dom.hospitalPasswordInput.value.trim();
+
+      if (!name || code.length !== 6) {
+        alert('Please enter a valid hospital name and 6-digit code.');
+        return;
+      }
+
+      this.addressBook.push({
+        id: Date.now(),
+        name,
+        code,
+        password: pass ? await this.hashPassword(pass) : ''
+      });
+
+      localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
+      this.renderAddressBook();
+
+      this.dom.hospitalNameInput.value = '';
+      this.dom.hospitalCodeInput.value = '';
+      this.dom.hospitalPasswordInput.value = '';
+      this.dom.addHospitalModal.style.display = 'none';
+    });
+
+    // Unattended Password Prompt Modal
+    this.dom.closePassPromptBtn.addEventListener('click', () => {
+      this.dom.passwordPromptModal.style.display = 'none';
+    });
+    this.dom.cancelPassPromptBtn.addEventListener('click', () => {
+      this.dom.passwordPromptModal.style.display = 'none';
+    });
+    this.dom.submitPassPromptBtn.addEventListener('click', async () => {
+      const pass = this.dom.targetUnattendedPassInput.value.trim();
+      if (!pass) return;
+      const hash = await this.hashPassword(pass);
+      this.dom.passwordPromptModal.style.display = 'none';
+      this.dom.targetUnattendedPassInput.value = '';
+
+      // Send auth verification to host
+      this.sendSignal({ type: 'auth-response', hash });
+    });
+
     // Remote Viewport controls
     this.dom.disconnectBtn.addEventListener('click', () => this.endSession());
     this.dom.fullscreenBtn.addEventListener('click', () => {
@@ -174,6 +335,27 @@ class PrimeDeskApp {
     this.dom.fitScreenBtn.addEventListener('click', () => {
       const isFit = this.dom.remoteVideo.classList.toggle('fit-screen');
       this.dom.fitScreenBtn.textContent = isFit ? '⛶ 1:1' : '⛶ Fit';
+    });
+
+    // Special Keys Dropdown
+    this.dom.specialKeysBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isShown = this.dom.specialKeysMenu.style.display === 'flex';
+      this.dom.specialKeysMenu.style.display = isShown ? 'none' : 'flex';
+    });
+    document.addEventListener('click', () => {
+      this.dom.specialKeysMenu.style.display = 'none';
+    });
+    this.dom.keyTaskMgrBtn.addEventListener('click', () => this.sendInputCommand('SPECIAL TASKMGR'));
+    this.dom.keyDesktopBtn.addEventListener('click', () => this.sendInputCommand('SPECIAL DESKTOP'));
+    this.dom.keyLockBtn.addEventListener('click', () => this.sendInputCommand('SPECIAL LOCK'));
+
+    // Privacy Mode Toggle
+    this.dom.privacyToggleBtn.addEventListener('click', () => {
+      this.privacyModeActive = !this.privacyModeActive;
+      this.dom.privacyToggleBtn.textContent = this.privacyModeActive ? '🕶️ Privacy Screen: ON' : '🕶️ Privacy Screen: OFF';
+      this.dom.privacyToggleBtn.style.color = this.privacyModeActive ? '#10b981' : '#f1f5f9';
+      this.sendInputCommand(`PRIVACY ${this.privacyModeActive ? '1' : '0'}`);
     });
 
     // Chat Drawer Toggle
@@ -215,8 +397,57 @@ class PrimeDeskApp {
       e.target.value = '';
     });
 
-    // Mouse and Keyboard listener setup on remote video
     this.setupRemoteInputCapture();
+  }
+
+  renderAddressBook() {
+    this.dom.addressBookCount.textContent = this.addressBook.length;
+    this.dom.hospitalCardsGrid.innerHTML = '';
+
+    if (this.addressBook.length === 0) {
+      this.dom.emptyAddressBook.style.display = 'block';
+      return;
+    }
+
+    this.dom.emptyAddressBook.style.display = 'none';
+    this.addressBook.forEach(h => {
+      const card = document.createElement('div');
+      card.className = 'hospital-card';
+      card.innerHTML = `
+        <div class="hospital-card-top">
+          <div>
+            <div class="hospital-card-title">${h.name}</div>
+            <div class="hospital-card-code">Code: ${this.formatCode(h.code)}</div>
+          </div>
+          <span class="hospital-card-badge">${h.password ? 'Unattended' : 'Attended'}</span>
+        </div>
+        <div class="hospital-card-actions">
+          <button class="btn btn-connect connect-hospital-btn" data-code="${h.code}" data-pass="${h.password}">
+            ⚡ Connect
+          </button>
+          <button class="btn-delete-hospital delete-hospital-btn" data-id="${h.id}">✕</button>
+        </div>
+      `;
+      this.dom.hospitalCardsGrid.appendChild(card);
+    });
+
+    // Bind connect and delete buttons
+    document.querySelectorAll('.connect-hospital-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const code = e.currentTarget.getAttribute('data-code');
+        const savedPass = e.currentTarget.getAttribute('data-pass');
+        this.connectToRemote(code, savedPass);
+      });
+    });
+
+    document.querySelectorAll('.delete-hospital-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = parseInt(e.currentTarget.getAttribute('data-id'));
+        this.addressBook = this.addressBook.filter(item => item.id !== id);
+        localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
+        this.renderAddressBook();
+      });
+    });
   }
 
   connectSignaling() {
@@ -270,12 +501,17 @@ class PrimeDeskApp {
   handleSignalingMessage(msg) {
     switch (msg.type) {
       case 'registered':
-        console.log(`[Host] Successfully registered code: ${msg.code}`);
+        console.log(`[Host] Registered session code: ${msg.code}`);
         break;
 
       case 'viewer-joined':
-        console.log('[Host] Remote technician connected. Initializing stream & pill mode...');
-        this.initiateHostStream();
+        console.log('[Host] Remote viewer connecting...');
+        if (this.unattendedEnabled && this.unattendedPassHash) {
+          // Require password authorization before starting stream
+          this.sendSignal({ type: 'auth-required' });
+        } else {
+          this.initiateHostStream();
+        }
         break;
 
       case 'signal':
@@ -303,7 +539,6 @@ class PrimeDeskApp {
     this.dom.hostStatusPill.classList.add('active');
     this.dom.hostStatusPill.innerHTML = '<span class="dot"></span> Status: Ready & Waiting for Vendor';
 
-    // Start native input worker
     if (window.primeDeskAPI) {
       await window.primeDeskAPI.startInputWorker();
     }
@@ -319,15 +554,14 @@ class PrimeDeskApp {
 
   async initiateHostStream() {
     try {
-      // 1. Enter Floating Pill Mode to hide main dashboard and prevent screen-mirroring
       if (window.primeDeskAPI) {
         await window.primeDeskAPI.setPillMode();
       }
       this.dom.appHeader.style.display = 'none';
       this.dom.dashboardView.style.display = 'none';
+      this.dom.addressBookView.style.display = 'none';
       this.dom.floatingPillView.style.display = 'flex';
 
-      // 2. Capture Desktop Screen
       const sources = await window.primeDeskAPI.getSources();
       const primarySource = sources[0];
 
@@ -346,15 +580,12 @@ class PrimeDeskApp {
         }
       });
 
-      // 3. Setup WebRTC PeerConnection
       this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
 
-      // Add screen tracks
       this.localStream.getTracks().forEach(track => {
         this.peerConnection.addTrack(track, this.localStream);
       });
 
-      // Create DataChannels
       this.inputChannel = this.peerConnection.createDataChannel('input', { ordered: true });
       this.setupHostInputChannel(this.inputChannel);
 
@@ -364,19 +595,22 @@ class PrimeDeskApp {
       this.fileChannel = this.peerConnection.createDataChannel('file');
       this.setupFileChannel(this.fileChannel);
 
-      // Handle ICE Candidates
+      this.clipboardChannel = this.peerConnection.createDataChannel('clipboard');
+      this.setupClipboardChannel(this.clipboardChannel);
+
       this.peerConnection.onicecandidate = (e) => {
         if (e.candidate) {
           this.sendSignal({ candidate: e.candidate });
         }
       };
 
-      // 4. Create Offer
       const offer = await this.peerConnection.createOffer();
       await this.peerConnection.setLocalDescription(offer);
 
       const screenSize = await window.primeDeskAPI.getScreenSize();
       this.sendSignal({ sdp: this.peerConnection.localDescription, screenSize });
+
+      this.startClipboardPolling();
 
     } catch (err) {
       console.error('[Host] Failed to capture screen:', err);
@@ -388,10 +622,14 @@ class PrimeDeskApp {
   setupHostInputChannel(dc) {
     dc.onopen = () => console.log('[Host] Input DataChannel Open');
     dc.onmessage = (event) => {
-      // Execute command directly via native Windows worker
       if (window.primeDeskAPI && event.data) {
         if (event.data === 'PING') {
           dc.send('PONG');
+          return;
+        }
+        if (event.data.startsWith('PRIVACY')) {
+          const enabled = event.data.split(' ')[1] === '1';
+          window.primeDeskAPI.setPrivacyMode(enabled);
           return;
         }
         window.primeDeskAPI.sendInput(event.data);
@@ -432,7 +670,6 @@ class PrimeDeskApp {
         this.updateTransferProgress(pct);
 
         if (this.incomingFile.receivedSize >= this.incomingFile.size) {
-          // File completed, trigger download
           const blob = new Blob(this.incomingFile.chunks);
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -451,6 +688,33 @@ class PrimeDeskApp {
     };
   }
 
+  setupClipboardChannel(dc) {
+    dc.onopen = () => console.log('[Clipboard] Sync Channel Open');
+    dc.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'clip' && data.text) {
+          this.lastCopiedText = data.text;
+          if (window.primeDeskAPI) {
+            await window.primeDeskAPI.writeClipboard(data.text);
+          }
+        }
+      } catch (e) {}
+    };
+  }
+
+  startClipboardPolling() {
+    this.clipboardPollInterval = setInterval(async () => {
+      if (window.primeDeskAPI && this.clipboardChannel && this.clipboardChannel.readyState === 'open') {
+        const currentText = await window.primeDeskAPI.readClipboard();
+        if (currentText && currentText !== this.lastCopiedText) {
+          this.lastCopiedText = currentText;
+          this.clipboardChannel.send(JSON.stringify({ type: 'clip', text: currentText }));
+        }
+      }
+    }, 1200);
+  }
+
   stopHosting() {
     this.isHosting = false;
     this.dom.toggleHostBtn.innerHTML = '<span class="btn-icon">▶</span> Start Sharing Session';
@@ -459,9 +723,14 @@ class PrimeDeskApp {
     this.dom.hostStatusPill.classList.remove('active');
     this.dom.hostStatusPill.innerHTML = '<span class="dot"></span> Status: Standby';
 
-    // Restore normal window
+    if (this.clipboardPollInterval) {
+      clearInterval(this.clipboardPollInterval);
+      this.clipboardPollInterval = null;
+    }
+
     if (window.primeDeskAPI) {
       window.primeDeskAPI.restoreNormalMode();
+      window.primeDeskAPI.setPrivacyMode(false);
     }
     this.dom.floatingPillView.style.display = 'none';
     this.dom.appHeader.style.display = 'flex';
@@ -487,9 +756,11 @@ class PrimeDeskApp {
   }
 
   // VIEWER IMPLEMENTATION
-  async connectToRemote(code) {
+  async connectToRemote(code, savedPass = null) {
     this.role = 'viewer';
-    console.log(`[Viewer] Connecting to session: ${code}`);
+    this.pendingConnectCode = code;
+    this.savedPass = savedPass;
+    console.log(`[Viewer] Connecting to: ${code}`);
 
     this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
 
@@ -499,18 +770,18 @@ class PrimeDeskApp {
       }
     };
 
-    // When remote screen stream arrives
     this.peerConnection.ontrack = (event) => {
       console.log('[Viewer] Remote video track received');
       this.dom.remoteVideo.srcObject = event.streams[0];
       this.dom.dashboardView.style.display = 'none';
+      this.dom.addressBookView.style.display = 'none';
       this.dom.remoteViewport.style.display = 'flex';
       this.dom.remoteSessionTitle.textContent = `Connected to Hospital (${this.formatCode(code)})`;
 
       this.startPingMonitor();
+      this.startClipboardPolling();
     };
 
-    // Listen for data channels created by host
     this.peerConnection.ondatachannel = (e) => {
       if (e.channel.label === 'input') {
         this.inputChannel = e.channel;
@@ -521,6 +792,9 @@ class PrimeDeskApp {
       } else if (e.channel.label === 'file') {
         this.fileChannel = e.channel;
         this.setupFileChannel(this.fileChannel);
+      } else if (e.channel.label === 'clipboard') {
+        this.clipboardChannel = e.channel;
+        this.setupClipboardChannel(this.clipboardChannel);
       }
     };
 
@@ -551,9 +825,32 @@ class PrimeDeskApp {
   }
 
   async handlePeerSignal(data) {
+    if (data.type === 'auth-required') {
+      // Unattended access authorization requested by host
+      if (this.savedPass) {
+        // Auto-authenticate with saved password from address book!
+        this.sendSignal({ type: 'auth-response', hash: this.savedPass });
+      } else {
+        // Prompt technician for password
+        this.dom.passwordPromptModal.style.display = 'flex';
+      }
+      return;
+    }
+
+    if (data.type === 'auth-response') {
+      // Host side verifies password hash
+      if (data.hash === this.unattendedPassHash) {
+        console.log('[Host] Unattended access authorized. Starting stream...');
+        this.initiateHostStream();
+      } else {
+        alert('Invalid unattended access password.');
+        this.stopHosting();
+      }
+      return;
+    }
+
     if (data.screenSize) {
       this.remoteHostResolution = data.screenSize;
-      console.log('[Viewer] Remote resolution:', this.remoteHostResolution);
     }
 
     if (data.sdp) {
@@ -579,7 +876,6 @@ class PrimeDeskApp {
     }
   }
 
-  // MOUSE & KEYBOARD INPUT CAPTURE (ON VIEWER)
   setupRemoteInputCapture() {
     const video = this.dom.remoteVideo;
     let lastMoveTime = 0;
@@ -645,7 +941,6 @@ class PrimeDeskApp {
     }
   }
 
-  // CHAT SYSTEM
   sendChatMessage(text) {
     if (this.chatChannel && this.chatChannel.readyState === 'open') {
       this.chatChannel.send(text);
@@ -671,7 +966,6 @@ class PrimeDeskApp {
     this.dom.pillChatBadge.style.display = display;
   }
 
-  // FILE TRANSFER SYSTEM
   async sendFile(file) {
     if (!this.fileChannel || this.fileChannel.readyState !== 'open') {
       alert('File channel is not open. Connect to hospital first.');
@@ -680,20 +974,17 @@ class PrimeDeskApp {
 
     this.showTransferToast(`Sending: ${file.name}`, 0);
 
-    // 1. Send metadata
     this.fileChannel.send(JSON.stringify({
       type: 'file-start',
       name: file.name,
       size: file.size
     }));
 
-    // 2. Stream chunks
     const buffer = await file.arrayBuffer();
     let offset = 0;
 
     const sendChunk = () => {
       while (offset < buffer.byteLength) {
-        // Respect backpressure
         if (this.fileChannel.bufferedAmount > 8 * 1024 * 1024) {
           setTimeout(sendChunk, 50);
           return;
@@ -734,6 +1025,11 @@ class PrimeDeskApp {
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
+    }
+
+    if (this.clipboardPollInterval) {
+      clearInterval(this.clipboardPollInterval);
+      this.clipboardPollInterval = null;
     }
 
     if (this.role === 'host') {
