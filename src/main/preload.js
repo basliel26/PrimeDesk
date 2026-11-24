@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('primeDeskAPI', {
   getSources: () => ipcRenderer.invoke('get-sources'),
   getScreenSize: () => ipcRenderer.invoke('get-screen-size'),
+  getLocalIPs: () => ipcRenderer.invoke('get-local-ips'),
   sendInput: (command) => ipcRenderer.invoke('send-input', command),
   startInputWorker: () => ipcRenderer.invoke('start-input-worker'),
   stopInputWorker: () => ipcRenderer.invoke('stop-input-worker'),

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard } = require('electron');
 const path = require('path');
+const os = require('os');
 const inputHandler = require('./inputHandler');
 
 let mainWindow = null;
@@ -13,7 +14,7 @@ function createWindow() {
     minWidth: 360,
     minHeight: 74,
     icon: path.join(__dirname, '..', '..', 'assets', 'primedesk.ico'),
-    backgroundColor: '#0f172a',
+    backgroundColor: '#090e17',
     frame: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -60,6 +61,19 @@ ipcMain.handle('get-screen-size', () => {
     height: primary.size.height,
     scaleFactor: primary.scaleFactor || 1
   };
+});
+
+ipcMain.handle('get-local-ips', () => {
+  const interfaces = os.networkInterfaces();
+  const results = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        results.push({ name, address: iface.address });
+      }
+    }
+  }
+  return results;
 });
 
 ipcMain.handle('start-input-worker', () => {
@@ -138,9 +152,9 @@ ipcMain.handle('set-privacy-mode', (event, enabled) => {
       privacyWindow.loadURL(`data:text/html;charset=utf-8,
         <html>
           <body style="background:#000;color:#38bdf8;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;">
-            <h1 style="font-size:2.5rem;margin-bottom:12px;">🔒 Hospital EHR Maintenance Active</h1>
-            <p style="font-size:1.2rem;color:#94a3b8;">Patient health records protected under Privacy Mode.</p>
-            <p style="font-size:0.9rem;color:#64748b;margin-top:20px;">Screen control is active by authorized IT support.</p>
+            <h1 style="font-size:2rem;margin-bottom:8px;">🔒 Hospital EHR Maintenance Active</h1>
+            <p style="font-size:1.1rem;color:#94a3b8;">Patient health records protected under Privacy Mode.</p>
+            <p style="font-size:0.85rem;color:#64748b;margin-top:16px;">Remote session in progress by authorized IT support.</p>
           </body>
         </html>
       `);

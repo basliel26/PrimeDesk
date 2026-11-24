@@ -24,8 +24,18 @@ class PrimeDeskApp {
     this.localStream = null;
     this.role = null; // 'host' | 'viewer'
     this.myCode = this.generateCode();
-    this.signalingUrl = localStorage.getItem('primedesk_signaling_url') || 'ws://localhost:9000';
     this.remoteHostResolution = { width: 1920, height: 1080 };
+
+    // Enterprise Preferences State
+    this.signalingUrl = localStorage.getItem('primedesk_signaling_url') || 'ws://localhost:9000';
+    this.stunServer = localStorage.getItem('primedesk_stun_server') || 'stun:stun.l.google.com:19302';
+    this.targetFps = parseInt(localStorage.getItem('primedesk_target_fps') || '30', 10);
+    this.hwAccel = localStorage.getItem('primedesk_hw_accel') !== 'false';
+    this.serverMode = localStorage.getItem('primedesk_server_mode') || 'cloud';
+    this.permControl = localStorage.getItem('primedesk_perm_control') !== 'false';
+    this.permClipboard = localStorage.getItem('primedesk_perm_clipboard') !== 'false';
+    this.permFile = localStorage.getItem('primedesk_perm_file') !== 'false';
+    this.permPrivacy = localStorage.getItem('primedesk_perm_privacy') !== 'false';
 
     // In-Session Features State
     this.unreadChatCount = 0;
@@ -48,6 +58,17 @@ class PrimeDeskApp {
     this.bindEvents();
     this.renderAddressBook();
     this.connectSignaling();
+  }
+
+  getIceServers() {
+    if (this.serverMode === 'lan' || !this.stunServer.trim()) {
+      return { iceServers: [] };
+    }
+    return {
+      iceServers: [
+        { urls: this.stunServer.trim() }
+      ]
+    };
   }
 
   generateCode() {
@@ -79,6 +100,18 @@ class PrimeDeskApp {
       cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
       saveSettingsBtn: document.getElementById('saveSettingsBtn'),
       signalingUrlInput: document.getElementById('signalingUrlInput'),
+      settingsNavItems: document.querySelectorAll('.settings-nav-item'),
+      settingsSections: document.querySelectorAll('.settings-section'),
+      modeCloud: document.getElementById('modeCloud'),
+      modeLan: document.getElementById('modeLan'),
+      detectLocalIpBtn: document.getElementById('detectLocalIpBtn'),
+      stunInput: document.getElementById('stunInput'),
+      targetFpsSelect: document.getElementById('targetFpsSelect'),
+      hwAccelToggle: document.getElementById('hwAccelToggle'),
+      permControlToggle: document.getElementById('permControlToggle'),
+      permClipboardToggle: document.getElementById('permClipboardToggle'),
+      permFileToggle: document.getElementById('permFileToggle'),
+      permPrivacyToggle: document.getElementById('permPrivacyToggle'),
 
       // Navigation
       tabSupportBtn: document.getElementById('tabSupportBtn'),
@@ -167,6 +200,26 @@ class PrimeDeskApp {
 
     this.dom.mySessionCode.textContent = this.formatCode(this.myCode);
     this.dom.signalingUrlInput.value = this.signalingUrl;
+    if (this.dom.stunInput) this.dom.stunInput.value = this.stunServer;
+    if (this.dom.targetFpsSelect) this.dom.targetFpsSelect.value = String(this.targetFps);
+    if (this.dom.hwAccelToggle) this.dom.hwAccelToggle.checked = this.hwAccel;
+    if (this.dom.permControlToggle) this.dom.permControlToggle.checked = this.permControl;
+    if (this.dom.permClipboardToggle) this.dom.permClipboardToggle.checked = this.permClipboard;
+    if (this.dom.permFileToggle) this.dom.permFileToggle.checked = this.permFile;
+    if (this.dom.permPrivacyToggle) this.dom.permPrivacyToggle.checked = this.permPrivacy;
+    if (this.serverMode === 'lan') {
+      if (this.dom.modeLan) this.dom.modeLan.checked = true;
+      if (this.dom.stunInput) {
+        this.dom.stunInput.disabled = true;
+        this.dom.stunInput.style.opacity = '0.5';
+      }
+    } else {
+      if (this.dom.modeCloud) this.dom.modeCloud.checked = true;
+      if (this.dom.stunInput) {
+        this.dom.stunInput.disabled = false;
+        this.dom.stunInput.style.opacity = '1';
+      }
+    }
     this.dom.unattendedToggle.checked = this.unattendedEnabled;
     if (this.unattendedEnabled) {
       this.dom.unattendedInputBox.style.display = 'flex';
@@ -261,22 +314,139 @@ class PrimeDeskApp {
       e.target.value = val;
     });
 
-    // Settings Modal
+    // Settings Navigation Tabs
+    if (this.dom.settingsNavItems) {
+      this.dom.settingsNavItems.forEach(btn => {
+        btn.addEventListener('click', () => {
+          this.dom.settingsNavItems.forEach(b => b.classList.remove('active'));
+          this.dom.settingsSections.forEach(s => s.classList.remove('active'));
+          btn.classList.add('active');
+          const targetSection = document.getElementById(`sec-${btn.dataset.section}`);
+          if (targetSection) targetSection.classList.add('active');
+        });
+      });
+    }
+
+    // Server Mode Radio toggles
+    if (this.dom.modeCloud) {
+      this.dom.modeCloud.addEventListener('change', () => {
+        if (this.dom.stunInput) {
+          this.dom.stunInput.disabled = false;
+          this.dom.stunInput.style.opacity = '1';
+        }
+      });
+    }
+
+    if (this.dom.modeLan) {
+      this.dom.modeLan.addEventListener('change', () => {
+        if (this.dom.stunInput) {
+          this.dom.stunInput.disabled = true;
+          this.dom.stunInput.style.opacity = '0.5';
+        }
+      });
+    }
+
+    // Detect LAN IP Button
+    if (this.dom.detectLocalIpBtn) {
+      this.dom.detectLocalIpBtn.addEventListener('click', async () => {
+        if (!window.primeDeskAPI || !window.primeDeskAPI.getLocalIPs) {
+          alert('Local IP detection is only available in the PrimeDesk desktop environment.');
+          return;
+        }
+        try {
+          const originalText = this.dom.detectLocalIpBtn.textContent;
+          this.dom.detectLocalIpBtn.textContent = 'Detecting...';
+          const ifaces = await window.primeDeskAPI.getLocalIPs();
+          if (ifaces && ifaces.length > 0) {
+            const preferred = ifaces.find(i => /wi-fi|wlan|ethernet/i.test(i.name)) || ifaces[0];
+            this.dom.signalingUrlInput.value = `ws://${preferred.address}:9000`;
+            this.dom.detectLocalIpBtn.textContent = `Found: ${preferred.address}`;
+            setTimeout(() => {
+              this.dom.detectLocalIpBtn.textContent = originalText;
+            }, 3000);
+          } else {
+            this.dom.detectLocalIpBtn.textContent = 'No LAN adapter found';
+            setTimeout(() => {
+              this.dom.detectLocalIpBtn.textContent = originalText;
+            }, 3000);
+          }
+        } catch (err) {
+          console.error('Failed to detect LAN IPs:', err);
+          this.dom.detectLocalIpBtn.textContent = 'Detection failed';
+        }
+      });
+    }
+
+    // Settings Modal Open/Close/Save
     this.dom.settingsBtn.addEventListener('click', () => {
+      this.dom.signalingUrlInput.value = this.signalingUrl;
+      if (this.dom.stunInput) this.dom.stunInput.value = this.stunServer;
+      if (this.dom.targetFpsSelect) this.dom.targetFpsSelect.value = String(this.targetFps);
+      if (this.dom.hwAccelToggle) this.dom.hwAccelToggle.checked = this.hwAccel;
+      if (this.dom.permControlToggle) this.dom.permControlToggle.checked = this.permControl;
+      if (this.dom.permClipboardToggle) this.dom.permClipboardToggle.checked = this.permClipboard;
+      if (this.dom.permFileToggle) this.dom.permFileToggle.checked = this.permFile;
+      if (this.dom.permPrivacyToggle) this.dom.permPrivacyToggle.checked = this.permPrivacy;
+      if (this.serverMode === 'lan') {
+        if (this.dom.modeLan) this.dom.modeLan.checked = true;
+        if (this.dom.stunInput) {
+          this.dom.stunInput.disabled = true;
+          this.dom.stunInput.style.opacity = '0.5';
+        }
+      } else {
+        if (this.dom.modeCloud) this.dom.modeCloud.checked = true;
+        if (this.dom.stunInput) {
+          this.dom.stunInput.disabled = false;
+          this.dom.stunInput.style.opacity = '1';
+        }
+      }
       this.dom.settingsModal.style.display = 'flex';
     });
+
     this.dom.closeSettingsBtn.addEventListener('click', () => {
       this.dom.settingsModal.style.display = 'none';
     });
+
     this.dom.cancelSettingsBtn.addEventListener('click', () => {
       this.dom.settingsModal.style.display = 'none';
     });
+
     this.dom.saveSettingsBtn.addEventListener('click', () => {
-      const newUrl = this.dom.signalingUrlInput.value.trim();
-      if (newUrl) {
-        this.signalingUrl = newUrl;
-        localStorage.setItem('primedesk_signaling_url', newUrl);
-        this.dom.settingsModal.style.display = 'none';
+      const newUrl = this.dom.signalingUrlInput.value.trim() || 'ws://localhost:9000';
+      const newStun = this.dom.stunInput ? (this.dom.stunInput.value.trim() || 'stun:stun.l.google.com:19302') : this.stunServer;
+      const newFps = this.dom.targetFpsSelect ? (parseInt(this.dom.targetFpsSelect.value, 10) || 30) : this.targetFps;
+      const newHw = this.dom.hwAccelToggle ? this.dom.hwAccelToggle.checked : this.hwAccel;
+      const newMode = (this.dom.modeLan && this.dom.modeLan.checked) ? 'lan' : 'cloud';
+      const newPermControl = this.dom.permControlToggle ? this.dom.permControlToggle.checked : this.permControl;
+      const newPermClipboard = this.dom.permClipboardToggle ? this.dom.permClipboardToggle.checked : this.permClipboard;
+      const newPermFile = this.dom.permFileToggle ? this.dom.permFileToggle.checked : this.permFile;
+      const newPermPrivacy = this.dom.permPrivacyToggle ? this.dom.permPrivacyToggle.checked : this.permPrivacy;
+
+      const urlChanged = (this.signalingUrl !== newUrl);
+
+      this.signalingUrl = newUrl;
+      this.stunServer = newStun;
+      this.targetFps = newFps;
+      this.hwAccel = newHw;
+      this.serverMode = newMode;
+      this.permControl = newPermControl;
+      this.permClipboard = newPermClipboard;
+      this.permFile = newPermFile;
+      this.permPrivacy = newPermPrivacy;
+
+      localStorage.setItem('primedesk_signaling_url', this.signalingUrl);
+      localStorage.setItem('primedesk_stun_server', this.stunServer);
+      localStorage.setItem('primedesk_target_fps', this.targetFps);
+      localStorage.setItem('primedesk_hw_accel', this.hwAccel);
+      localStorage.setItem('primedesk_server_mode', this.serverMode);
+      localStorage.setItem('primedesk_perm_control', this.permControl);
+      localStorage.setItem('primedesk_perm_clipboard', this.permClipboard);
+      localStorage.setItem('primedesk_perm_file', this.permFile);
+      localStorage.setItem('primedesk_perm_privacy', this.permPrivacy);
+
+      this.dom.settingsModal.style.display = 'none';
+
+      if (urlChanged) {
         this.connectSignaling();
       }
     });
@@ -585,12 +755,12 @@ class PrimeDeskApp {
             maxWidth: 1920,
             minHeight: 720,
             maxHeight: 1080,
-            maxFrameRate: 60
+            maxFrameRate: this.targetFps || 30
           }
         }
       });
 
-      this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
+      this.peerConnection = new RTCPeerConnection(this.getIceServers());
 
       this.localStream.getTracks().forEach(track => {
         this.peerConnection.addTrack(track, this.localStream);
@@ -638,8 +808,16 @@ class PrimeDeskApp {
           return;
         }
         if (event.data.startsWith('PRIVACY')) {
+          if (!this.permPrivacy) {
+            console.warn('[Host] Privacy mode rejected: Permission disabled in settings');
+            return;
+          }
           const enabled = event.data.split(' ')[1] === '1';
           window.primeDeskAPI.setPrivacyMode(enabled);
+          return;
+        }
+        if (!this.permControl) {
+          // Mouse & keyboard control disallowed in host preferences
           return;
         }
         window.primeDeskAPI.sendInput(event.data);
@@ -662,6 +840,12 @@ class PrimeDeskApp {
     dc.binaryType = 'arraybuffer';
     dc.onopen = () => console.log('[File] Channel Ready');
     dc.onmessage = (event) => {
+      if (!this.permFile) {
+        if (typeof event.data === 'string') {
+          console.warn('[File] File transfer blocked: Permission disabled in settings');
+        }
+        return;
+      }
       if (typeof event.data === 'string') {
         const meta = JSON.parse(event.data);
         if (meta.type === 'file-start') {
@@ -701,6 +885,7 @@ class PrimeDeskApp {
   setupClipboardChannel(dc) {
     dc.onopen = () => console.log('[Clipboard] Sync Channel Open');
     dc.onmessage = async (event) => {
+      if (!this.permClipboard) return;
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'clip' && data.text) {
@@ -715,6 +900,7 @@ class PrimeDeskApp {
 
   startClipboardPolling() {
     this.clipboardPollInterval = setInterval(async () => {
+      if (!this.permClipboard) return;
       if (window.primeDeskAPI && this.clipboardChannel && this.clipboardChannel.readyState === 'open') {
         const currentText = await window.primeDeskAPI.readClipboard();
         if (currentText && currentText !== this.lastCopiedText) {
@@ -778,7 +964,7 @@ class PrimeDeskApp {
   }
 
   startViewerPeer() {
-    this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
+    this.peerConnection = new RTCPeerConnection(this.getIceServers());
 
     this.peerConnection.onicecandidate = (e) => {
       if (e.candidate) {
@@ -821,7 +1007,7 @@ class PrimeDeskApp {
       this.inputChannel.onmessage = (e) => {
         if (e.data === 'PONG') {
           const rtt = Math.round(performance.now() - lastPing);
-          this.dom.remoteStats.textContent = `${rtt} ms | 60 FPS`;
+          this.dom.remoteStats.textContent = `${rtt} ms | ${this.targetFps || 30} FPS`;
         }
       };
     }

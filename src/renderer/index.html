@@ -50,7 +50,7 @@
           <span class="status-dot disconnected" id="serverDot"></span>
           <span id="serverStatusText">Signaling: Connecting...</span>
         </div>
-        <button class="icon-btn" id="settingsBtn" title="Network Configuration">
+        <button class="icon-btn" id="settingsBtn" title="Preferences & Network Configuration">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -196,7 +196,7 @@
       </div>
     </main>
 
-    <!-- INCOMING CONNECTION MODAL (The AnyDesk Accept Prompt) -->
+    <!-- INCOMING CONNECTION MODAL -->
     <div class="modal-backdrop" id="incomingModal" style="display: none;">
       <div class="modal incoming-modal">
         <div class="incoming-header">
@@ -239,7 +239,7 @@
       </div>
     </div>
 
-    <!-- Hospital Floating Pill (Active when support is connected) -->
+    <!-- Hospital Floating Pill -->
     <div class="floating-pill-view" id="floatingPillView" style="display: none;">
       <div class="pill-badge">
         <span class="pulse-indicator"></span>
@@ -260,7 +260,7 @@
       </div>
     </div>
 
-    <!-- Remote Viewer Viewport (Technician Screen) -->
+    <!-- Remote Viewer Viewport -->
     <div class="remote-viewport-container" id="remoteViewport" style="display: none;">
       <div class="viewport-toolbar">
         <div class="toolbar-left">
@@ -274,7 +274,6 @@
         </div>
 
         <div class="toolbar-actions">
-          <!-- Special Keys Menu -->
           <div class="dropdown-wrapper">
             <button class="tool-btn" id="specialKeysBtn">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"></path></svg>
@@ -287,7 +286,6 @@
             </div>
           </div>
 
-          <!-- Privacy Black Screen Toggle -->
           <button class="tool-btn" id="privacyToggleBtn" title="Black out physical remote monitor">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
             <span id="privacyBtnText">Privacy: OFF</span>
@@ -324,7 +322,6 @@
           <video id="remoteVideo" autoplay playsinline></video>
         </div>
 
-        <!-- Chat Drawer -->
         <div class="chat-drawer" id="chatDrawer" style="display: none;">
           <div class="chat-header">
             <h3>Support Messages</h3>
@@ -343,10 +340,8 @@
       </div>
     </div>
 
-    <!-- Hidden File Input for Transfer -->
     <input type="file" id="filePicker" style="display: none;">
 
-    <!-- File Transfer Toast / Progress Bar -->
     <div class="transfer-toast" id="transferToast" style="display: none;">
       <div class="toast-header">
         <span id="toastFileName">transfer_package.zip</span>
@@ -399,21 +394,174 @@
       </div>
     </div>
 
-    <!-- Network Settings Modal -->
+    <!-- ENTERPRISE SETTINGS DIALOG (Multi-Section) -->
     <div class="modal-backdrop" id="settingsModal" style="display: none;">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>Signaling Configuration</h3>
+      <div class="modal settings-dialog">
+        <div class="modal-header settings-dialog-header">
+          <div class="settings-title-group">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <h3>PrimeDesk Preferences</h3>
+          </div>
           <button class="modal-close" id="closeSettingsBtn">✕</button>
         </div>
-        <div class="modal-body">
-          <label for="signalingUrlInput">Signaling Server Endpoint</label>
-          <input type="text" id="signalingUrlInput" value="ws://localhost:9000">
-          <p class="modal-hint">Specify the WebSocket URL for peer matchmaking (e.g., <code>ws://192.168.1.100:9000</code> or your public domain).</p>
+
+        <div class="settings-layout">
+          <!-- Settings Sidebar -->
+          <div class="settings-sidebar">
+            <button class="settings-nav-item active" data-section="network">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+              Network & Server
+            </button>
+            <button class="settings-nav-item" data-section="display">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+              Display & Quality
+            </button>
+            <button class="settings-nav-item" data-section="security">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              Security
+            </button>
+            <button class="settings-nav-item" data-section="about">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              About
+            </button>
+          </div>
+
+          <!-- Settings Content Area -->
+          <div class="settings-content">
+
+            <!-- Section 1: Network & Server -->
+            <div class="settings-section active" id="sec-network">
+              <div class="setting-group">
+                <label>Signaling Server Mode</label>
+                <div class="setting-radio-cards">
+                  <label class="radio-card">
+                    <input type="radio" name="serverMode" value="cloud" id="modeCloud">
+                    <div class="radio-card-content">
+                      <span class="radio-card-title">Cloud Internet Mode</span>
+                      <span class="radio-card-desc">For remote connections across cities over the internet.</span>
+                    </div>
+                  </label>
+                  <label class="radio-card">
+                    <input type="radio" name="serverMode" value="lan" id="modeLan">
+                    <div class="radio-card-content">
+                      <span class="radio-card-title">Hospital LAN Mode (Offline)</span>
+                      <span class="radio-card-desc">Zero internet required. Operates across local hospital Wi-Fi.</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="label-with-action">
+                  <label for="signalingUrlInput">Signaling Endpoint URL</label>
+                  <button class="text-link-btn" id="detectLocalIpBtn">Detect My LAN IP</button>
+                </div>
+                <input type="text" id="signalingUrlInput" value="ws://localhost:9000">
+                <p class="modal-hint">Specify WebSocket address (e.g. <code>ws://192.168.1.15:9000</code> or public domain).</p>
+              </div>
+
+              <div class="setting-group">
+                <label for="stunInput">STUN Discovery Server</label>
+                <input type="text" id="stunInput" value="stun:stun.l.google.com:19302">
+                <p class="modal-hint">Used for public NAT hole-punching over cellular/broadband.</p>
+              </div>
+            </div>
+
+            <!-- Section 2: Display & Quality -->
+            <div class="settings-section" id="sec-display">
+              <div class="setting-group">
+                <label for="targetFpsSelect">Target Frame Rate</label>
+                <select id="targetFpsSelect" class="setting-select">
+                  <option value="60">60 FPS (Ultra Smooth - Recommended for LAN)</option>
+                  <option value="30" selected>30 FPS (Balanced - Standard Internet)</option>
+                  <option value="15">15 FPS (Bandwidth Saver - Low-Speed 3G/4G)</option>
+                </select>
+                <p class="modal-hint">Controls video framerate to optimize bandwidth consumption.</p>
+              </div>
+
+              <div class="setting-group">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="hwAccelToggle" checked>
+                  <span class="slider"></span>
+                  <span class="toggle-text">Hardware Acceleration (DirectX DXGI Duplication)</span>
+                </label>
+                <p class="modal-hint">Leverages GPU desktop capture for sub-millisecond frame grabbing.</p>
+              </div>
+            </div>
+
+            <!-- Section 3: Security & Access -->
+            <div class="settings-section" id="sec-security">
+              <div class="setting-group">
+                <label>Default Permissions for Incoming Sessions</label>
+                <div class="checkbox-list">
+                  <label class="checkbox-item">
+                    <input type="checkbox" id="permControlToggle" checked>
+                    <span>Allow Remote Mouse & Keyboard Injection</span>
+                  </label>
+                  <label class="checkbox-item">
+                    <input type="checkbox" id="permClipboardToggle" checked>
+                    <span>Allow Bidirectional Clipboard Synchronization</span>
+                  </label>
+                  <label class="checkbox-item">
+                    <input type="checkbox" id="permFileToggle" checked>
+                    <span>Allow Incoming File Transfer</span>
+                  </label>
+                  <label class="checkbox-item">
+                    <input type="checkbox" id="permPrivacyToggle" checked>
+                    <span>Allow Technician to Blackout Physical Monitor (Privacy Mode)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 4: About -->
+            <div class="settings-section" id="sec-about">
+              <div class="about-card">
+                <div class="about-logo">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                    <line x1="12" y1="7" x2="12" y2="13"></line>
+                    <line x1="9" y1="10" x2="15" y2="10"></line>
+                  </svg>
+                </div>
+                <div class="about-details">
+                  <h4>PrimeDesk Support Suite</h4>
+                  <p class="version-tag">Version 1.0.0 (Enterprise Edition)</p>
+                  <p class="arch-tag">x64 Native Architecture • Windows 10/11 / Server</p>
+                </div>
+              </div>
+
+              <div class="about-meta-list">
+                <div class="meta-row">
+                  <span class="meta-label">License:</span>
+                  <span class="meta-val">MIT Open Enterprise License (100% Free Forever)</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">Developer:</span>
+                  <span class="meta-val">Basliel Getu</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">Repository:</span>
+                  <span class="meta-val">github.com/basliel26/PrimeDesk</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">Encryption:</span>
+                  <span class="meta-val">WebRTC DTLS 1.2 / SRTP / Ed25519</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
         </div>
-        <div class="modal-footer">
+
+        <div class="modal-footer settings-dialog-footer">
           <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
-          <button class="btn btn-primary" id="saveSettingsBtn">Save & Reconnect</button>
+          <button class="btn btn-primary" id="saveSettingsBtn">Save & Apply Preferences</button>
         </div>
       </div>
     </div>
