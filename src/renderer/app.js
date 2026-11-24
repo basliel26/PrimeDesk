@@ -12,6 +12,7 @@ const ICE_SERVERS = {
 };
 
 const CHUNK_SIZE = 32 * 1024; // 32KB per file transfer chunk
+const DEFAULT_CLOUD_SIGNALING_URL = 'wss://primedesk-signal.onrender.com';
 
 class PrimeDeskApp {
   constructor() {
@@ -32,7 +33,13 @@ class PrimeDeskApp {
     this.preventSleep = localStorage.getItem('primedesk_prevent_sleep') !== 'false';
 
     this.serverMode = localStorage.getItem('primedesk_server_mode') || 'cloud';
-    this.signalingUrl = localStorage.getItem('primedesk_signaling_url') || 'ws://localhost:9000';
+    const savedUrl = localStorage.getItem('primedesk_signaling_url');
+    if (!savedUrl || savedUrl === 'ws://localhost:9000') {
+      this.signalingUrl = DEFAULT_CLOUD_SIGNALING_URL;
+      localStorage.setItem('primedesk_signaling_url', this.signalingUrl);
+    } else {
+      this.signalingUrl = savedUrl;
+    }
     this.stunServer = localStorage.getItem('primedesk_stun_server') || 'stun:stun.l.google.com:19302';
 
     this.proxyMode = localStorage.getItem('primedesk_proxy_mode') || 'direct';
@@ -503,6 +510,9 @@ class PrimeDeskApp {
           this.dom.stunInput.disabled = false;
           this.dom.stunInput.style.opacity = '1';
         }
+        if (this.dom.signalingUrlInput && (this.dom.signalingUrlInput.value.includes('localhost') || this.dom.signalingUrlInput.value.includes('192.168.'))) {
+          this.dom.signalingUrlInput.value = DEFAULT_CLOUD_SIGNALING_URL;
+        }
       });
     }
 
@@ -511,6 +521,9 @@ class PrimeDeskApp {
         if (this.dom.stunInput) {
           this.dom.stunInput.disabled = true;
           this.dom.stunInput.style.opacity = '0.5';
+        }
+        if (this.dom.signalingUrlInput && this.dom.signalingUrlInput.value.includes('onrender.com')) {
+          this.dom.signalingUrlInput.value = 'ws://localhost:9000';
         }
       });
     }
@@ -624,7 +637,7 @@ class PrimeDeskApp {
       this.preventSleep = this.dom.preventSleepToggle ? this.dom.preventSleepToggle.checked : this.preventSleep;
 
       // Network & Proxy
-      const newUrl = this.dom.signalingUrlInput ? (this.dom.signalingUrlInput.value.trim() || 'ws://localhost:9000') : this.signalingUrl;
+      const newUrl = this.dom.signalingUrlInput ? (this.dom.signalingUrlInput.value.trim() || DEFAULT_CLOUD_SIGNALING_URL) : this.signalingUrl;
       const newStun = this.dom.stunInput ? (this.dom.stunInput.value.trim() || 'stun:stun.l.google.com:19302') : this.stunServer;
       const newMode = (this.dom.modeLan && this.dom.modeLan.checked) ? 'lan' : 'cloud';
       this.proxyMode = this.dom.proxyModeSelect ? this.dom.proxyModeSelect.value : this.proxyMode;
@@ -887,13 +900,14 @@ class PrimeDeskApp {
       try { this.ws.close(); } catch (e) {}
     }
 
-    this.updateServerStatus(false, 'Connecting...');
+    const isCloud = this.signalingUrl.includes('onrender.com') || this.serverMode === 'cloud';
+    this.updateServerStatus(false, isCloud ? 'Connecting to Cloud...' : 'Connecting to LAN...');
 
     try {
       this.ws = new WebSocket(this.signalingUrl);
 
       this.ws.onopen = () => {
-        this.updateServerStatus(true, 'Signaling: Online');
+        this.updateServerStatus(true, isCloud ? 'Cloud Online' : 'Signaling: Online');
         // Automatically register terminal address immediately upon opening app!
         this.registerHostOnServer();
       };
@@ -908,12 +922,12 @@ class PrimeDeskApp {
       };
 
       this.ws.onclose = () => {
-        this.updateServerStatus(false, 'Signaling: Offline');
+        this.updateServerStatus(false, isCloud ? 'Connecting to Cloud...' : 'Signaling: Offline');
         setTimeout(() => this.connectSignaling(), 4000);
       };
 
       this.ws.onerror = () => {
-        this.updateServerStatus(false, 'Signaling: Error');
+        this.updateServerStatus(false, isCloud ? 'Connecting to Cloud...' : 'Signaling: Error');
       };
     } catch (e) {
       this.updateServerStatus(false, 'Signaling: Failed');
