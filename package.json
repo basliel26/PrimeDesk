@@ -1,0 +1,32 @@
+{
+  "name": "primedesk",
+  "productName": "PrimeDesk",
+  "version": "1.0.0",
+  "description": "High-performance WebRTC Remote Desktop Support Tool for Hospital EHR Systems",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "server": "node src/server/signaling.js",
+    "test": "echo \"No test specified\" && exit 0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/basliel26/PrimeDesk.git"
+  },
+  "keywords": [
+    "remote-desktop",
+    "webrtc",
+    "electron",
+    "anydesk-alternative",
+    "hospital-support",
+    "ehr"
+  ],
+  "author": "Basliel Getu",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "electron": "^41.7.1"
+  }
+}

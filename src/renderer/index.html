@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PrimeDesk - Hospital Remote Support</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Navigation / Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" stroke="#38bdf8"></rect>
+            <line x1="8" y1="21" x2="16" y2="21" stroke="#38bdf8"></line>
+            <line x1="12" y1="17" x2="12" y2="21" stroke="#38bdf8"></line>
+            <path d="M12 7v6M9 10h6" stroke="#0ea5e9" stroke-width="2.5"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Prime<span>Desk</span></h1>
+          <span class="subtext">Hospital EHR Support Suite</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="server-badge" id="serverStatusBadge">
+          <span class="status-dot disconnected" id="serverDot"></span>
+          <span id="serverStatusText">Signaling: Connecting...</span>
+        </div>
+        <button class="icon-btn" id="settingsBtn" title="Server Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Dashboard View -->
+    <main class="dashboard-view" id="dashboardView">
+      <div class="cards-grid">
+        
+        <!-- Left Card: Hospital Share This Screen -->
+        <div class="card host-card">
+          <div class="card-header">
+            <div class="card-icon host-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+            </div>
+            <div>
+              <h2>Share This Computer</h2>
+              <p>Allow the EHR vendor to view and control this terminal</p>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="code-box">
+              <span class="code-label">Your Session Code</span>
+              <div class="code-display" id="mySessionCode">--- ---</div>
+              <button class="copy-btn" id="copyCodeBtn" title="Copy Code">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                Copy
+              </button>
+            </div>
+
+            <div class="host-controls">
+              <button class="btn btn-primary" id="toggleHostBtn">
+                <span class="btn-icon">▶</span> Start Sharing Session
+              </button>
+              <div class="session-status" id="hostStatusPill">
+                <span class="dot"></span> Status: Standby
+              </div>
+            </div>
+
+            <div class="security-note">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+              <span>Encrypted P2P connection. You can stop remote control at any moment.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Card: Vendor Connect to Remote -->
+        <div class="card viewer-card">
+          <div class="card-header">
+            <div class="card-icon viewer-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+            </div>
+            <div>
+              <h2>Control Remote Hospital</h2>
+              <p>Connect to a hospital terminal using their session code</p>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="input-group">
+              <label for="remoteCodeInput">Enter Hospital Session Code</label>
+              <div class="input-wrapper">
+                <input type="text" id="remoteCodeInput" placeholder="e.g. 582-914" maxlength="7" autocomplete="off">
+              </div>
+            </div>
+
+            <button class="btn btn-connect" id="connectBtn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                <polyline points="10 17 15 12 10 7"></polyline>
+                <line x1="15" y1="12" x2="3" y2="12"></line>
+              </svg>
+              Connect to Terminal
+            </button>
+
+            <div class="features-list">
+              <div class="feature-item">
+                <span class="check">✓</span> Real-time mouse & keyboard control
+              </div>
+              <div class="feature-item">
+                <span class="check">✓</span> 60 FPS hardware-accelerated video
+              </div>
+              <div class="feature-item">
+                <span class="check">✓</span> Direct P2P with zero subscription fees
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Remote Viewer Screen (Shown when connected to remote desktop) -->
+    <div class="remote-viewport-container" id="remoteViewport" style="display: none;">
+      <div class="viewport-toolbar">
+        <div class="toolbar-left">
+          <span class="pulse-indicator"></span>
+          <span class="toolbar-title" id="remoteSessionTitle">Connected to Hospital</span>
+          <span class="stat-pill" id="remoteStats">0 ms | 60 FPS</span>
+        </div>
+        <div class="toolbar-actions">
+          <button class="tool-btn" id="fullscreenBtn" title="Toggle Fullscreen">⛶ Fullscreen</button>
+          <button class="tool-btn btn-danger" id="disconnectBtn" title="End Session">✕ Disconnect</button>
+        </div>
+      </div>
+      <div class="video-wrapper" id="videoWrapper">
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-backdrop" id="settingsModal" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Signaling Server Settings</h3>
+          <button class="modal-close" id="closeSettingsBtn">✕</button>
+        </div>
+        <div class="modal-body">
+          <label for="signalingUrlInput">Signaling Server URL</label>
+          <input type="text" id="signalingUrlInput" value="ws://localhost:9000">
+          <p class="modal-hint">Enter your server domain or IP (e.g., <code>ws://192.168.1.100:9000</code> or <code>wss://your-cloud-server.com</code>).</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
+          <button class="btn btn-primary" id="saveSettingsBtn">Save & Reconnect</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
