@@ -32,10 +32,8 @@ jobs:
       - name: Verify Native C# Input Worker
         shell: pwsh
         run: |
-          if (!(Test-Path src/native/PrimeInput.exe)) {
-            Write-Host "Compiling PrimeInput.exe with csc.exe..."
-            & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:src/native/PrimeInput.exe src/native/PrimeInput.cs
-          }
+          Write-Host "Compiling PrimeInput.exe with csc.exe..."
+          & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:src/native/PrimeInput.exe src/native/PrimeInput.cs
           Write-Host "PrimeInput.exe size: $((Get-Item src/native/PrimeInput.exe).Length) bytes"
 
       - name: Compile Windows Installer & Portable Executable
@@ -70,7 +68,7 @@ jobs:
             - **`PrimeDesk-Setup-${{ github.ref_name }}.exe`** — Standard Windows Installer with Desktop Shortcut & Start Menu integration.
             - **`PrimeDesk-Portable-${{ github.ref_name }}.exe`** — Single self-contained standalone executable (Runs from USB or any folder with zero installation).
 
-            #### 🔒 Security & Medical Privacy:
+            #### 🔒 Enterprise Security & Privacy:
             - WebRTC DTLS 1.2 / SRTP / Ed25519 End-to-End Encryption.
             - Privacy Mode Blackout overlay for physical screens.
             - Auto-Lock on Disconnect (`LockWorkStation`).

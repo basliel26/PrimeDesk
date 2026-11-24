@@ -17,6 +17,9 @@ namespace PrimeDesk
         static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
 
         [DllImport("user32.dll")]
+        static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+        [DllImport("user32.dll")]
         static extern bool LockWorkStation();
 
         const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -84,12 +87,38 @@ namespace PrimeDesk
                     else if (cmd == "KD" && parts.Length >= 2)
                     {
                         byte vk = byte.Parse(parts[1]);
-                        keybd_event(vk, 0, 0, 0);
+                        byte scan = (byte)MapVirtualKey(vk, 0);
+                        keybd_event(vk, scan, 0, 0);
                     }
                     else if (cmd == "KU" && parts.Length >= 2)
                     {
                         byte vk = byte.Parse(parts[1]);
-                        keybd_event(vk, 0, KEYEVENTF_KEYUP, 0);
+                        byte scan = (byte)MapVirtualKey(vk, 0);
+                        keybd_event(vk, scan, KEYEVENTF_KEYUP, 0);
+                    }
+                    else if (cmd == "PASTE")
+                    {
+                        byte scanCtrl = (byte)MapVirtualKey(VK_CONTROL, 0);
+                        byte scanV = (byte)MapVirtualKey(0x56, 0);
+                        keybd_event(VK_CONTROL, scanCtrl, 0, 0);
+                        keybd_event(0x56, scanV, 0, 0);
+                        keybd_event(0x56, scanV, KEYEVENTF_KEYUP, 0);
+                        keybd_event(VK_CONTROL, scanCtrl, KEYEVENTF_KEYUP, 0);
+                    }
+                    else if (cmd == "COPY")
+                    {
+                        byte scanCtrl = (byte)MapVirtualKey(VK_CONTROL, 0);
+                        byte scanC = (byte)MapVirtualKey(0x43, 0);
+                        keybd_event(VK_CONTROL, scanCtrl, 0, 0);
+                        keybd_event(0x43, scanC, 0, 0);
+                        keybd_event(0x43, scanC, KEYEVENTF_KEYUP, 0);
+                        keybd_event(VK_CONTROL, scanCtrl, KEYEVENTF_KEYUP, 0);
+                    }
+                    else if (cmd == "RELEASE_MOUSE")
+                    {
+                        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+                        mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+                        mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0);
                     }
                     else if (cmd == "SPECIAL" && parts.Length >= 2)
                     {

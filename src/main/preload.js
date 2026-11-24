@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('primeDeskAPI', {
   restoreNormalMode: () => ipcRenderer.invoke('restore-normal-mode'),
   readClipboard: () => ipcRenderer.invoke('read-clipboard'),
   writeClipboard: (text) => ipcRenderer.invoke('write-clipboard', text),
+  saveReceivedFile: (payload) => ipcRenderer.invoke('save-received-file', payload),
   setPrivacyMode: (enabled) => ipcRenderer.invoke('set-privacy-mode', enabled),
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),

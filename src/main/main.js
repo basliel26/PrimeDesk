@@ -14,13 +14,15 @@ function createWindow() {
     height: normalBounds.height,
     minWidth: 360,
     minHeight: 74,
+    maximizable: false,
     icon: path.join(__dirname, '..', '..', 'assets', 'primedesk.ico'),
     backgroundColor: '#090e17',
     frame: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
 
@@ -115,11 +117,14 @@ ipcMain.handle('write-clipboard', (event, text) => {
 ipcMain.handle('set-pill-mode', () => {
   if (!mainWindow) return;
   const primary = screen.getPrimaryDisplay();
-  const pillWidth = 360;
+  const pillWidth = 390;
   const pillHeight = 74;
   const margin = 20;
 
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  mainWindow.setMaximizable(false);
+  mainWindow.setMinimizable(false);
+  mainWindow.setResizable(false);
   mainWindow.setBounds({
     x: primary.workArea.width - pillWidth - margin,
     y: margin,
@@ -132,12 +137,37 @@ ipcMain.handle('set-pill-mode', () => {
 ipcMain.handle('restore-normal-mode', () => {
   if (!mainWindow) return;
   mainWindow.setAlwaysOnTop(false);
+  mainWindow.setMaximizable(false);
+  mainWindow.setMinimizable(true);
+  mainWindow.setResizable(true);
   mainWindow.setBounds({
     width: normalBounds.width,
     height: normalBounds.height
   });
   mainWindow.center();
   return true;
+});
+
+// File Transfer Storage Handler
+ipcMain.handle('save-received-file', async (event, { filename, buffer }) => {
+  try {
+    const downloadsDir = app.getPath('downloads') || path.join(os.homedir(), 'Downloads');
+    if (!fs.existsSync(downloadsDir)) {
+      fs.mkdirSync(downloadsDir, { recursive: true });
+    }
+    let targetPath = path.join(downloadsDir, filename);
+    if (fs.existsSync(targetPath)) {
+      const ext = path.extname(filename);
+      const name = path.basename(filename, ext);
+      targetPath = path.join(downloadsDir, `${name}_${Date.now()}${ext}`);
+    }
+    fs.writeFileSync(targetPath, Buffer.from(buffer));
+    console.log('[FileTransfer] Saved received file to:', targetPath);
+    return { success: true, path: targetPath };
+  } catch (err) {
+    console.error('[FileTransfer] Failed to save received file:', err);
+    return { success: false, error: err.message };
+  }
 });
 
 // Privacy Mode (Black Screen Overlay)

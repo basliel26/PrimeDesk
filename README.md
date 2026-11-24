@@ -137,7 +137,7 @@ npm run dist
 
 - **End-to-End Encryption**: Video, audio, input, and data channels are encrypted using WebRTC DTLS 1.2 / SRTP / Ed25519.
 - **Direct P2P**: Video frames travel directly between computers without traversing intermediate cloud storage.
-- **Patient Confidentiality**: Privacy Mode prevents on-site clinic visitors from viewing medical records while remote maintenance is active.
+- **Operator Confidentiality**: Privacy Mode prevents on-site bystanders from viewing sensitive data while remote maintenance is active.
 
 ---
 
