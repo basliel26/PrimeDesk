@@ -1,18 +1,45 @@
-# PrimeDesk 🏥🖥️
+# PrimeDesk 
 
-> **High-Performance WebRTC Remote Desktop Support Tool for Hospital EHR Systems**
+> **Enterprise-Grade WebRTC Remote Desktop Support Suite for Hospital EHR Systems**  
+> *100% Free Forever • Zero Subscriptions • Zero Commercial Paywalls or Time Limits*
 
-**PrimeDesk** is a lightweight, zero-subscription, peer-to-peer remote desktop application engineered to replace commercial tools like AnyDesk. Designed specifically for software vendors supporting hospital Electronic Health Record (EHR) installations, it delivers fast, encrypted, low-latency remote access without monthly fees or commercial limits.
+[![Build Windows Binaries](https://github.com/basliel26/PrimeDesk/actions/workflows/build.yml/badge.svg)](https://github.com/basliel26/PrimeDesk/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/basliel26/PrimeDesk?color=0284c7&label=Release)](https://github.com/basliel26/PrimeDesk/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
 
 ---
 
-## ⚡ Highlights
+## ⚡ Overview
 
-- **Direct P2P Streaming:** Streams 60 FPS video directly between the vendor and the hospital via **WebRTC**, bypassing intermediate video relay bottlenecks.
-- **Ultra-Simple Hospital UX:** Non-technical hospital staff simply click *"Start Sharing"* and read a 6-digit code (e.g. `582 914`) to technical support.
-- **Native Windows Input Injection:** Zero-overhead C# input worker leveraging Windows `user32.dll` (`SendInput`, `SetCursorPos`, `mouse_event`) with sub-millisecond execution latency.
-- **Privacy & Security First:** DTLS-SRTP end-to-end encrypted video and data channels ensure patient health records (EHR) remain strictly confidential.
-- **Zero Recurring Costs:** Operates using standard free Google STUN servers and a lightweight WebSocket handshake server with no paid cloud infrastructure required.
+**PrimeDesk** is an open-source, peer-to-peer remote desktop application engineered to replace commercial tools like AnyDesk and TeamViewer. Designed specifically for software vendors supporting hospital Electronic Health Record (EHR) systems and remote medical clinics, it provides instant, low-latency remote control without monthly licensing fees, foreign exchange constraints, or countdown nag screens.
+
+---
+
+## 🚀 Download Standalone Binaries (Windows 10 / 11 / Server)
+
+Pre-compiled standalone Windows executables are automatically generated and published directly on GitHub Releases:
+
+📦 **[Download Latest PrimeDesk Release (v1.0.0)](https://github.com/basliel26/PrimeDesk/releases/latest)**
+
+- **`PrimeDesk-Setup-1.0.0.exe`**: Full Windows installer with desktop shortcut, start menu entry, and auto-start integration.
+- **`PrimeDesk-Portable-1.0.0.exe`**: Zero-installation single executable. Runs instantly from a USB flash drive or any folder.
+
+---
+
+## 🌟 Key Features
+
+| Category | Capability | Details |
+| :--- | :--- | :--- |
+| **Workflow** | **AnyDesk Connection Workflow** | Terminals stay auto-ready on launch. Technicians dial the 6-digit address, and hospital staff get an instant **Accept / Decline** prompt with safety checklist. |
+| **Access** | **Unattended Server Mode** | Cryptographically salted SHA-256 password authentication allows after-hours server maintenance without local staff interaction. |
+| **Directory** | **Hospital Address Book** | Save client clinics and hospital workstations with custom labels and credentials for instant one-click connection. |
+| **Input** | **Sub-Millisecond Native Input** | Ultra-fast native C# worker (`PrimeInput.exe`) utilizing Windows `user32.dll` (`SendInput`, `mouse_event`, `SetCursorPos`, `LockWorkStation`). |
+| **Privacy** | **Patient Privacy Mode** | Technician can toggle a full-screen blackout overlay on the physical hospital monitor to protect confidential patient health records during maintenance. |
+| **Shortcuts** | **Windows System Actions** | One-click triggers for `Ctrl+Shift+Esc` (Task Manager), `Win+D` (Show Desktop), and `Win+L` (Lock Workstation). |
+| **Data Sync** | **Bidirectional Clipboard & Files** | Real-time clipboard synchronization and direct WebRTC chunked file transfers (updates, database patches, logs). |
+| **Communication** | **Built-in Support Chat** | Slide-out support drawer with unread message badges and sound notifications. |
+| **Networking** | **Offline LAN & Proxy Engine** | Operates across isolated hospital Wi-Fi networks with **zero internet**. Supports institutional HTTP/SOCKS5 proxies (Squid). |
+| **Compliance** | **Session Recording & Auto-Lock** | Automatically records sessions to `.webm` video for HIPAA/EHR auditing and auto-locks Windows when sessions disconnect. |
 
 ---
 
@@ -20,79 +47,108 @@
 
 ```mermaid
 flowchart LR
-    subgraph Hospital ["Hospital Terminal (Host)"]
+    subgraph Hospital ["Hospital Workstation (Host)"]
         H_UI["PrimeDesk UI"]
-        H_Cap["Electron Desktop Capturer (DXGI)"]
-        H_Input["Native PrimeInput.exe (SendInput)"]
+        H_Cap["Electron Desktop Capturer (DXGI Duplication)"]
+        H_Input["Native C# Worker (PrimeInput.exe)"]
+        H_Priv["Privacy Mode Blackout Window"]
     end
 
     subgraph Signaling ["Handshake Layer"]
-        Sig["PrimeDesk WebSocket Signaling Server (:9000)"]
+        Sig["PrimeDesk WebSocket Server (:9000 / Cloud)"]
     end
 
-    subgraph Vendor ["EHR Vendor (Support Client)"]
-        V_UI["PrimeDesk Remote Viewer"]
-        V_Input["Mouse & Keyboard Event Capture"]
+    subgraph Vendor ["EHR Support Technician (Viewer)"]
+        V_UI["PrimeDesk Remote Viewport"]
+        V_Input["Input Tracking & Resolution Scaling"]
+        V_Rec["MediaRecorder Audit Capture"]
     end
 
-    H_UI <-->|Register 6-Digit Code| Sig
-    V_UI <-->|Connect with Code| Sig
-    H_Cap ===|WebRTC Encrypted Video Stream (P2P)| V_UI
-    V_Input ===|RTCDataChannel Mouse/Key Events| H_Input
+    H_UI <-->|Auto-Register 6-Digit Address| Sig
+    V_UI <-->|Request Connection| Sig
+    H_Cap ===|WebRTC DTLS/SRTP Video & Audio (P2P)| V_UI
+    V_Input ===|RTCDataChannel Input Events| H_Input
+    H_UI -.->|Blackout Screen| H_Priv
 ```
 
 ---
 
-## 🚀 Quick Start
+## ⚙️ Enterprise Settings Suite
+
+PrimeDesk features a Windows 11 Fluent preferences interface organized into 7 domains:
+
+1. **General & System**: Startup with Windows registry hook, minimize to notification tray, system sleep prevention.
+2. **Network & Proxy**: Cloud Internet vs Hospital LAN mode, 1-click LAN IP auto-detection, institutional HTTP/SOCKS5 proxy configuration (Squid).
+3. **Display & Streaming**: Target framerate (`60 FPS`, `30 FPS`, `15 FPS`), latency vs sharpness profiles, DirectX DXGI hardware capture.
+4. **Audio & Media**: Remote audio capture (EHR beeps and alarms), physical host speaker muting.
+5. **Security & Access**: Unattended master password, operator permission checklist, Auto-Lock on Disconnect.
+6. **Session Recording & Audit**: Automatic WebM video recording, native Windows folder selector, connection audit logs.
+7. **About & Diagnostics**: Architecture specifications, WebRTC encryption verification, MIT license.
+
+---
+
+## ☁️ Free Cloud Signaling Deployment
+
+For remote support across different cities over the public internet, deploy the included signaling server to [Render.com](https://render.com) (or Railway/Koyeb) for free:
+
+### 1-Click Render.com Deployment:
+1. Log in to [render.com](https://render.com) and click **New +** ➔ **Web Service**.
+2. Connect your GitHub repository: `basliel26/PrimeDesk`.
+3. Settings:
+   - **Environment**: `Node`
+   - **Build Command**: `npm install --omit=dev`
+   - **Start Command**: `npm run server`
+   - **Instance Type**: `Free`
+4. Copy the generated WebSocket URL (e.g. `wss://primedesk-signal.onrender.com`) and paste it into PrimeDesk **Preferences ➔ Network & Proxy**.
+
+---
+
+## 💻 Local Development & Build
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v18 or higher)
+- [Node.js](https://nodejs.org/) (v20 recommended)
 - Windows 10/11 or Windows Server
 
-### 1. Start the Signaling Server
+### Run Locally:
 ```bash
-npm run server
-```
-*The signaling server starts on `ws://localhost:9000` (or set `PORT` in environment).*
+# Clone the repository
+git clone https://github.com/basliel26/PrimeDesk.git
+cd PrimeDesk
 
-### 2. Launch the PrimeDesk App
-```bash
+# Install dependencies
+npm install
+
+# Start local signaling server
+npm run server
+
+# In a separate terminal, launch PrimeDesk
 npm start
 ```
 
----
-
-## 📂 Project Structure
-
-```text
-PrimeDesk/
-├── assets/                  # High-res icons (.ico, .png, logos)
-├── src/
-│   ├── main/
-│   │   ├── main.js          # Electron main process & IPC handlers
-│   │   ├── preload.js       # Secure context bridge API
-│   │   └── inputHandler.js  # Stdio bridge to native Windows input worker
-│   ├── renderer/
-│   │   ├── index.html       # Clean medical dark-theme dashboard
-│   │   ├── app.css          # Modern styling and viewport layout
-│   │   └── app.js           # WebRTC peer connection, signaling & input tracking
-│   ├── native/
-│   │   ├── PrimeInput.cs    # Native Windows C# input worker
-│   │   └── PrimeInput.exe   # Compiled sub-millisecond input engine
-│   └── server/
-│       └── signaling.js     # WebSocket rendezvous and room manager
-├── package.json
-└── README.md
+### Build Windows Binaries Locally:
+```bash
+npm run dist
 ```
+*Compiled installer (`PrimeDesk-Setup-1.0.0.exe`) and portable standalone (`PrimeDesk-Portable-1.0.0.exe`) will be generated inside the `dist/` directory.*
 
 ---
 
-## 🛡️ Security & EHR Compliance
-- No remote video or patient data is ever recorded or stored on any intermediate server.
-- The hospital operator has immediate visibility over remote control and can terminate the session instantly with a single click.
+## 🛡️ Security & Privacy
+
+- **End-to-End Encryption**: Video, audio, input, and data channels are encrypted using WebRTC DTLS 1.2 / SRTP / Ed25519.
+- **Direct P2P**: Video frames travel directly between computers without traversing intermediate cloud storage.
+- **Patient Confidentiality**: Privacy Mode prevents on-site clinic visitors from viewing medical records while remote maintenance is active.
 
 ---
 
-## 👤 Author
+## 👤 Author & Maintainer
+
 **Basliel Getu**  
-- GitHub: [@basliel26](https://github.com/basliel26)
+- GitHub: [@basliel26](https://github.com/basliel26)  
+- Project Repository: [github.com/basliel26/PrimeDesk](https://github.com/basliel26/PrimeDesk)
+
+---
+
+## 📄 License
+
+Distributed under the **MIT Open Source License**. Free for commercial and private use.
