@@ -32,8 +32,10 @@ jobs:
       - name: Verify Native C# Input Worker
         shell: pwsh
         run: |
-          Write-Host "Compiling PrimeInput.exe with csc.exe..."
-          & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:src/native/PrimeInput.exe src/native/PrimeInput.cs
+          if (!(Test-Path src/native/PrimeInput.exe)) {
+            Write-Host "Compiling PrimeInput.exe with csc.exe..."
+            & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:"src\native\PrimeInput.exe" "src\native\PrimeInput.cs"
+          }
           Write-Host "PrimeInput.exe size: $((Get-Item src/native/PrimeInput.exe).Length) bytes"
 
       - name: Compile Windows Installer & Portable Executable
