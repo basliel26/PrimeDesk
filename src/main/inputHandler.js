@@ -1,5 +1,7 @@
+const { app } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 class InputHandler {
   constructor() {
@@ -8,7 +10,17 @@ class InputHandler {
   }
 
   start() {
-    const exePath = path.join(__dirname, '..', 'native', 'PrimeInput.exe');
+    let exePath = path.join(__dirname, '..', 'native', 'PrimeInput.exe');
+    if (app && app.isPackaged) {
+      exePath = path.join(process.resourcesPath, 'native', 'PrimeInput.exe');
+    }
+    if (!fs.existsSync(exePath)) {
+      const fallbackPath = path.join(__dirname, '..', 'native', 'PrimeInput.exe');
+      if (fs.existsSync(fallbackPath)) {
+        exePath = fallbackPath;
+      }
+    }
+
     try {
       this.process = spawn(exePath, [], {
         windowsHide: true,

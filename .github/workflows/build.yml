@@ -1,0 +1,68 @@
+name: Build PrimeDesk Windows Binaries
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Verify Native C# Input Worker
+        shell: pwsh
+        run: |
+          if (!(Test-Path src/native/PrimeInput.exe)) {
+            Write-Host "Compiling PrimeInput.exe with csc.exe..."
+            & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:src/native/PrimeInput.exe src/native/PrimeInput.cs
+          }
+          Write-Host "PrimeInput.exe size: $((Get-Item src/native/PrimeInput.exe).Length) bytes"
+
+      - name: Compile Windows Installer & Portable Executable
+        run: npm run dist
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrimeDesk-Windows-x64
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          draft: false
+          prerelease: false
+          name: PrimeDesk ${{ github.ref_name }}
+          body: |
+            ### PrimeDesk Enterprise Remote Desktop Suite
+            **100% Free Forever • Zero Subscriptions • Zero Time Restrictions**
+
+            #### 🚀 Download Windows Binaries:
+            - **`PrimeDesk-Setup-${{ github.ref_name }}.exe`** — Standard Windows Installer with Desktop Shortcut & Start Menu integration.
+            - **`PrimeDesk-Portable-${{ github.ref_name }}.exe`** — Single self-contained standalone executable (Runs from USB or any folder with zero installation).
+
+            #### 🔒 Security & Medical Privacy:
+            - WebRTC DTLS 1.2 / SRTP / Ed25519 End-to-End Encryption.
+            - Privacy Mode Blackout overlay for physical screens.
+            - Auto-Lock on Disconnect (`LockWorkStation`).
+            - Bidirectional clipboard sync & chunked direct P2P file transfers.

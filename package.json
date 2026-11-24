@@ -2,11 +2,13 @@
   "name": "primedesk",
   "productName": "PrimeDesk",
   "version": "1.0.0",
-  "description": "High-performance WebRTC Remote Desktop Support Tool for Hospital EHR Systems",
+  "description": "Enterprise WebRTC Remote Desktop Support Suite for Hospital EHR Systems",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
     "server": "node src/server/signaling.js",
+    "build:win": "electron-builder --win",
+    "dist": "electron-builder --win",
     "test": "echo \"No test specified\" && exit 0"
   },
   "repository": {
@@ -27,6 +29,54 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "electron": "^41.7.1"
+    "electron": "^41.7.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.primedesk.support",
+    "productName": "PrimeDesk",
+    "copyright": "Copyright © 2026 Basliel Getu",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/main/**/*",
+      "src/renderer/**/*",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "src/native/PrimeInput.exe",
+        "to": "native/PrimeInput.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/primedesk.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PrimeDesk Support",
+      "artifactName": "PrimeDesk-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "PrimeDesk-Portable-${version}.${ext}"
+    }
   }
 }
