@@ -1,45 +1,73 @@
-# PrimeDesk 
+# PrimeDesk
 
-> **Enterprise-Grade WebRTC Remote Desktop Support Suite**  
-> *100% Free Forever • Zero Subscriptions • Zero Commercial Paywalls or Time Limits*
+> **Fast, Lightweight Open-Source Alternative to AnyDesk & TeamViewer**  
+> *P2P WebRTC Remote Desktop • Sub-Millisecond Native Input • Zero Subscriptions or Time Limits*
 
 [![Build Windows Binaries](https://github.com/basliel26/PrimeDesk/actions/workflows/build.yml/badge.svg)](https://github.com/basliel26/PrimeDesk/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/basliel26/PrimeDesk?color=0284c7&label=Release)](https://github.com/basliel26/PrimeDesk/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/basliel26/PrimeDesk?color=2563eb&label=Release)](https://github.com/basliel26/PrimeDesk/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
 ## ⚡ Overview
 
-**PrimeDesk** is an open-source, peer-to-peer remote desktop application engineered to replace commercial tools like AnyDesk and TeamViewer. Designed for technical support teams and remote workstations, it provides instant, low-latency remote control without monthly licensing fees, foreign exchange constraints, or countdown nag screens.
+**PrimeDesk** is an open-source, peer-to-peer remote desktop application built for **speed, simplicity, and zero paywalls**. Engineered as a fast alternative to commercial tools like AnyDesk and TeamViewer, PrimeDesk pairs hardware-accelerated WebRTC video (up to 60 FPS) with native Windows C# input and clipboard helpers — giving you responsive remote control without licensing fees, commercial session timers, or forced accounts.
+
+It works out of the box across continents over the internet (via **Cloudflare Workers + Durable Objects** signaling and **Cloudflare Realtime TURN** relay for strict firewalls) as well as **100% offline** on local Wi-Fi / LAN networks.
 
 ---
 
-## 🚀 Download Standalone Binaries (Windows 10 / 11 / Server)
+## 🖥️ Screenshots
 
-Pre-compiled standalone Windows executables are automatically generated and published directly on GitHub Releases:
-
-📦 **[Download Latest PrimeDesk Release (v1.0.2)](https://github.com/basliel26/PrimeDesk/releases/latest)**
-
-- **`PrimeDesk-Setup.exe`**: Full Windows installer with desktop shortcut, start menu entry, and auto-start integration.
-- **`PrimeDesk-Portable.exe`**: Zero-installation single executable. Runs instantly from a USB flash drive or any folder.
+<table>
+  <tr>
+    <td width="50%">
+      <strong>Dashboard — Dark Mode</strong><br />
+      <img src="docs/screenshots/dashboard-dark.png" alt="PrimeDesk Dark Dashboard" />
+    </td>
+    <td width="50%">
+      <strong>Dashboard — Light Mode</strong><br />
+      <img src="docs/screenshots/dashboard-light.png" alt="PrimeDesk Light Dashboard" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Devices &amp; Session History (Pinned + Recent)</strong><br />
+      <img src="docs/screenshots/devices-history.png" alt="PrimeDesk Devices and Session History" />
+    </td>
+    <td width="50%">
+      <strong>Dual-Pane File Transfer Manager</strong><br />
+      <img src="docs/screenshots/file-manager.png" alt="PrimeDesk Dual-Pane File Manager" />
+    </td>
+  </tr>
+</table>
 
 ---
 
-## 🌟 Key Features
+## 🚀 Download Windows Binaries (Windows 10 / 11 / Server)
 
-| Category | Capability | Details |
+Pre-compiled standalone Windows x64 binaries are built and published automatically on GitHub Releases:
+
+📦 **[Download Latest PrimeDesk Release](https://github.com/basliel26/PrimeDesk/releases/latest)**
+
+- **`PrimeDesk-Setup-1.2.2.exe`** — Standard Windows installer with desktop shortcut, start menu entry, and optional startup launch.
+- **`PrimeDesk-Portable-1.2.2.exe`** — Single self-contained executable that runs directly from any folder or USB drive with zero installation.
+
+---
+
+## ✨ Key Features
+
+| Area | Capability | Details |
 | :--- | :--- | :--- |
-| **Workflow** | **AnyDesk Connection Workflow** | Terminals stay auto-ready on launch. Technicians dial the 6-digit address, and remote users get an instant **Accept / Decline** prompt with safety checklist. |
-| **Access** | **Unattended Server Mode** | Cryptographically salted SHA-256 password authentication allows after-hours server maintenance without local staff interaction. |
-| **Directory** | **Device Directory** | Save client workstations and servers with custom labels and credentials for instant one-click connection. |
-| **Input** | **Sub-Millisecond Native Input** | Ultra-fast native C# worker (`PrimeInput.exe`) utilizing Windows `user32.dll` (`SendInput`, `mouse_event`, `SetCursorPos`, `LockWorkStation`). |
-| **Privacy** | **Privacy Mode** | Technician can toggle a full-screen blackout overlay on the physical remote monitor to protect confidential data during maintenance. |
-| **Shortcuts** | **Windows System Actions** | One-click triggers for `Ctrl+Shift+Esc` (Task Manager), `Win+D` (Show Desktop), and `Win+L` (Lock Workstation). |
-| **Data Sync** | **Bidirectional Clipboard & Files** | Real-time clipboard synchronization and direct WebRTC chunked file transfers (updates, software patches, logs). |
-| **Communication** | **Built-in Support Chat** | Slide-out support drawer with unread message badges and sound notifications. |
-| **Networking** | **Offline LAN & Proxy Engine** | Operates across isolated local Wi-Fi or Ethernet networks with **zero internet**. Supports institutional HTTP/SOCKS5 proxies (Squid). |
-| **Compliance** | **Session Recording & Auto-Lock** | Automatically records sessions to `.webm` video for security auditing and auto-locks Windows when sessions disconnect. |
+| **Speed & Responsiveness** | **Hardware Capture + Native C# Input** | DirectX DXGI desktop capture (15 / 30 / 60 FPS profiles) paired with `PrimeInput.exe` calling Win32 `SendInput` for ultra-low-latency cursor and keyboard control. |
+| **Instant Connection** | **Persistent 9-Digit Terminal IDs** | Each workstation keeps a persistent 9-digit address (`XXX XXX XXX`) with device-token identity protection and an instant **Accept / Decline** prompt for interactive sessions. |
+| **Unattended Access** | **After-Hours Master Password** | Optional salted SHA-256 master password unlocks direct unattended login without someone sitting at the remote keyboard. |
+| **Devices & History** | **Pinned Favorites + Recent History** | Automatically keeps your last **15** connected destinations for quick one-click reconnect, with **Pin/Bookmark**, search filter, custom nicknames, and clear-history controls. |
+| **File Transfers** | **Dual-Pane File Manager & `CF_HDROP`** | Stream unlimited files and folders both directions (`Give` & `Take`) over chunked WebRTC data channels, or copy & paste files directly with `Ctrl+C` / `Ctrl+V` via `PrimeClipboard.exe`. |
+| **Global Connectivity** | **P2P + Cloudflare TURN + Offline LAN** | Connects direct peer-to-peer whenever possible, falls back seamlessly to Cloudflare Realtime TURN across restrictive NAT/firewalls, and supports isolated LAN mode + HTTP/SOCKS5 proxies. |
+| **Host Controls** | **Floating Pill & Privacy Blackout** | Hosting minimizes into a compact always-on-top session pill with live chat & instant disconnect; remote technicians can also toggle Privacy Mode screen blackout and special keys (`Ctrl+Shift+Esc`, `Win+D`, `Win+L`). |
+| **Modern Minimal UI** | **Responsive Dark / Light / System UI** | Offline bundled **Montserrat** typography, Dark / Light / Match System themes, and fluid layout scaling from compact `360px` windows up to maximized desktops. |
+| **Audit & Safety** | **DTLS/SRTP + Recording + Auto-Lock** | End-to-end encrypted WebRTC media/data channels, optional local `.webm` session recording, audit logs, and optional Windows auto-lock (`Win+L`) on disconnect. |
 
 ---
 
@@ -48,107 +76,91 @@ Pre-compiled standalone Windows executables are automatically generated and publ
 ```mermaid
 flowchart LR
     subgraph Host ["Remote Workstation (Host)"]
-        H_UI["PrimeDesk UI"]
-        H_Cap["Electron Desktop Capturer (DXGI Duplication)"]
-        H_Input["Native C# Worker (PrimeInput.exe)"]
-        H_Priv["Privacy Mode Blackout Window"]
+        H_UI["PrimeDesk Pill & Host UI"]
+        H_Cap["DXGI Screen & Audio Capture"]
+        H_Input["PrimeInput.exe & PrimeClipboard.exe"]
+        H_Priv["Privacy Blackout Window"]
     end
 
-    subgraph Signaling ["Handshake Layer"]
-        Sig["PrimeDesk WebSocket Server (:9000 / Cloud)"]
+    subgraph Signaling ["Signaling & NAT Traversal"]
+        CF["Cloudflare Workers + Durable Objects\n(or Local ws://:9000)"]
+        TURN["Cloudflare Realtime TURN\n(Fallback Relay when NAT blocks P2P)"]
     end
 
-    subgraph Vendor ["Support Technician (Viewer)"]
-        V_UI["PrimeDesk Remote Viewport"]
-        V_Input["Input Tracking & Resolution Scaling"]
-        V_Rec["MediaRecorder Audit Capture"]
+    subgraph Viewer ["Controller Workstation (Viewer)"]
+        V_UI["PrimeDesk Remote Viewport & File Manager"]
+        V_Track["Mouse/Keyboard Mapping & Scaling"]
+        V_Rec["Optional WebM Session Recorder"]
     end
 
-    H_UI <-->|Auto-Register 6-Digit Address| Sig
-    V_UI <-->|Request Connection| Sig
-    H_Cap ===|WebRTC DTLS/SRTP Video & Audio (P2P)| V_UI
-    V_Input ===|RTCDataChannel Input Events| H_Input
-    H_UI -.->|Blackout Screen| H_Priv
+    H_UI <-->|Persistent 9-Digit ID + Token| CF
+    V_UI <-->|Connection & Auth Handshake| CF
+    H_Cap <-->|P2P Direct / ICE + TURN| V_UI
+    H_Cap -.->|NAT Relay Fallback| TURN -.-> V_UI
+    V_Track <-->|RTCDataChannel Input, Files & Clipboard| H_Input
+    H_UI -.->|Screen Privacy Toggle| H_Priv
 ```
 
 ---
 
-## ⚙️ Enterprise Settings Suite
+## ⚙️ Preferences Overview
 
-PrimeDesk features a Windows 11 Fluent preferences interface organized into 7 domains:
+Open **Preferences** from the top-right gear icon (or switch Light/Dark instantly with the Sun/Moon toggle):
 
-1. **General & System**: Startup with Windows registry hook, minimize to notification tray, system sleep prevention.
-2. **Network & Proxy**: Cloud Internet vs Offline mode, automatic endpoint resolution, institutional HTTP/SOCKS5 proxy configuration (Squid).
-3. **Display & Streaming**: Target framerate (`60 FPS`, `30 FPS`, `15 FPS`), latency vs sharpness profiles, DirectX DXGI hardware capture.
-4. **Audio & Media**: Remote audio capture, physical host speaker muting.
-5. **Security & Access**: Unattended master password, operator permission checklist, Auto-Lock on Disconnect.
-6. **Session Recording & Audit**: Automatic WebM video recording, native Windows folder selector, connection audit logs.
-7. **About & Diagnostics**: Architecture specifications, WebRTC encryption verification, MIT license.
-
----
-
-## ☁️ Free Cloud Signaling Deployment
-
-For remote support across different cities over the public internet, deploy the included signaling server to [Render.com](https://render.com) (or Railway/Koyeb) for free:
-
-### 1-Click Render.com Deployment:
-1. Log in to [render.com](https://render.com) and click **New +** ➔ **Web Service**.
-2. Connect your GitHub repository: `basliel26/PrimeDesk`.
-3. Settings:
-   - **Environment**: `Node`
-   - **Build Command**: `npm install --omit=dev`
-   - **Start Command**: `npm run server`
-   - **Instance Type**: `Free`
-4. Copy the generated WebSocket URL (e.g. `wss://primedesk-signal.onrender.com`) and paste it into PrimeDesk **Preferences ➔ Network & Proxy**.
+1. **General & System**: Color Theme (**Dark**, **Light**, **Match System**), Windows startup toggle, minimize-to-tray behavior, sleep prevention.
+2. **Network & Proxy**: Cloud Global mode vs. Local Offline LAN mode, custom STUN configuration, HTTP/SOCKS5 proxy rules.
+3. **Display & Quality**: Framerate target (`60`, `30`, `15` FPS), bandwidth profile (`Ultra`, `Balanced`, `Low`), hardware capture toggle.
+4. **Audio & Media**: Remote system audio streaming, automatic host speaker muting during sessions.
+5. **Security & Access**: Unattended password management, permission toggles (input, clipboard, file transfer, privacy mode), optional auto-lock on disconnect.
+6. **Recording & Audit**: Auto-record sessions to `.webm`, custom save folder picker, local audit trail.
 
 ---
 
-## 💻 Local Development & Build
+## ☁️ Self-Hosting Signaling (Cloudflare Workers or Local LAN)
+
+PrimeDesk connects to its hosted Cloudflare Worker signaling cluster out of the box, or you can deploy your own in under a minute:
+
+### Option A: Cloudflare Workers + Durable Objects ([`cloudflare-signaling/`](cloudflare-signaling/))
+```bash
+cd cloudflare-signaling
+npm install
+npx wrangler secret put TURN_API_TOKEN   # Optional: enables Cloudflare Realtime TURN credentials
+npx wrangler deploy
+```
+
+### Option B: Local / Offline LAN Server ([`src/server/signaling.js`](src/server/signaling.js))
+```bash
+npm install
+npm run server
+```
+Then select **Offline / Local Network** under **Preferences ➔ Network & Proxy** in PrimeDesk.
+
+---
+
+## 💻 Local Development & Building
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v20 recommended)
-- Windows 10/11 or Windows Server
+- Windows 10 / 11 / Server (x64)
 
-### Run Locally:
+### Run from Source
 ```bash
-# Clone the repository
 git clone https://github.com/basliel26/PrimeDesk.git
 cd PrimeDesk
-
-# Install dependencies
 npm install
-
-# Start local signaling server
-npm run server
-
-# In a separate terminal, launch PrimeDesk
 npm start
 ```
 
-### Build Windows Binaries Locally:
+### Build Windows Installer & Portable `.exe`
 ```bash
-npm run dist
+npm run build:win
 ```
-*Compiled installer (`PrimeDesk-Setup-1.0.0.exe`) and portable standalone (`PrimeDesk-Portable-1.0.0.exe`) will be generated inside the `dist/` directory.*
+Generated executables are written to the `dist/` folder (`PrimeDesk-Setup-<version>.exe` and `PrimeDesk-Portable-<version>.exe`).
 
 ---
 
-## 🛡️ Security & Privacy
+## 👤 Author & License
 
-- **End-to-End Encryption**: Video, audio, input, and data channels are encrypted using WebRTC DTLS 1.2 / SRTP / Ed25519.
-- **Direct P2P**: Video frames travel directly between computers without traversing intermediate cloud storage.
-- **Operator Confidentiality**: Privacy Mode prevents on-site bystanders from viewing sensitive data while remote maintenance is active.
-
----
-
-## 👤 Author & Maintainer
-
-**Basliel Getu**  
-- GitHub: [@basliel26](https://github.com/basliel26)  
-- Project Repository: [github.com/basliel26/PrimeDesk](https://github.com/basliel26/PrimeDesk)
-
----
-
-## 📄 License
-
-Distributed under the **MIT Open Source License**. Free for commercial and private use.
+- **Author:** Basliel Getu ([@basliel26](https://github.com/basliel26))
+- **Repository:** [github.com/basliel26/PrimeDesk](https://github.com/basliel26/PrimeDesk)
+- **License:** [MIT License](https://opensource.org/licenses/MIT) — free for personal and commercial use.
