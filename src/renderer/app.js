@@ -32,6 +32,10 @@ class PrimeDeskApp {
     this.localStream = null;
     this.videoSender = null;
     this.peerDisconnectTimer = null;
+    this.peerEverConnected = false;
+    this.pendingIceCandidates = [];
+    this.viewerPeerReadyPromise = null;
+    this.cachedIceServers = null;
     this.role = null; // 'host' | 'viewer'
     const identity = this.loadOrCreateDeviceIdentity();
     this.myCode = identity.code;
@@ -84,7 +88,11 @@ class PrimeDeskApp {
     this.permClipboard = localStorage.getItem('primedesk_perm_clipboard') !== 'false';
     this.permFile = localStorage.getItem('primedesk_perm_file') !== 'false';
     this.permPrivacy = localStorage.getItem('primedesk_perm_privacy') !== 'false';
-    this.autoLock = localStorage.getItem('primedesk_auto_lock') !== 'false';
+    if (!localStorage.getItem('primedesk_autolock_default_v121')) {
+      localStorage.setItem('primedesk_auto_lock', 'false');
+      localStorage.setItem('primedesk_autolock_default_v121', 'true');
+    }
+    this.autoLock = localStorage.getItem('primedesk_auto_lock') === 'true';
 
     this.autoRecord = localStorage.getItem('primedesk_auto_record') === 'true';
     this.recordingDir = localStorage.getItem('primedesk_recording_dir') || '';
@@ -229,14 +237,66 @@ class PrimeDeskApp {
   }
 
   getIceServers() {
-    if (this.serverMode === 'lan' || !this.stunServer.trim()) {
+    if (this.serverMode === 'lan') {
       return { iceServers: [] };
     }
-    return {
-      iceServers: [
-        { urls: this.stunServer.trim() }
-      ]
-    };
+    const list = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+    const customStun = this.stunServer.trim();
+    if (customStun && customStun !== 'stun:stun.cloudflare.com:3478') {
+      list.push({ urls: customStun });
+    }
+    return { iceServers: list };
+  }
+
+  async resolveIceServers(roomCode) {
+    if (this.serverMode === 'lan' || !this.isCloudMode()) {
+      return this.getIceServers();
+    }
+    const cleanCode = (roomCode || '').replace(/\D/g, '');
+    if (!cleanCode) return this.getIceServers();
+
+    if (
+      this.cachedIceServers &&
+      this.cachedIceServers.code === cleanCode &&
+      Date.now() < this.cachedIceServers.expiresAt
+    ) {
+      return { iceServers: this.cachedIceServers.servers };
+    }
+
+    try {
+      const urlObj = new URL(this.signalingUrl);
+      urlObj.protocol = urlObj.protocol === 'wss:' ? 'https:' : 'http:';
+      urlObj.pathname = '/ice-servers';
+      urlObj.search = `?code=${encodeURIComponent(cleanCode)}`;
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      try {
+        const res = await fetch(urlObj.toString(), { signal: ctrl.signal });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+            const servers = [...data.iceServers];
+            const customStun = this.stunServer.trim();
+            if (customStun && !JSON.stringify(servers).includes(customStun)) {
+              servers.unshift({ urls: customStun });
+            }
+            this.cachedIceServers = {
+              code: cleanCode,
+              servers,
+              expiresAt: Date.now() + 15 * 60 * 1000
+            };
+            console.log(`[ICE] Resolved ${servers.length} ICE server entries (TURN: ${Boolean(data.turnEnabled)})`);
+            return { iceServers: servers };
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e) {
+      console.warn('[ICE] TURN lookup skipped/failed; falling back to STUN:', e.message);
+    }
+    return this.getIceServers();
   }
 
   generateCode() {
@@ -1422,6 +1482,7 @@ class PrimeDeskApp {
       case 'incoming-connection':
         if (source !== 'host') break;
         console.log('[Host] Incoming connection request received');
+        this.resolveIceServers(this.myCode).catch(() => {});
         if (this.unattendedEnabled && this.unattendedPassHash) {
           // If unattended access active, check password or request auth
           this.sendSignal({ type: 'auth-required' });
@@ -1497,6 +1558,9 @@ class PrimeDeskApp {
 
   clearSessionChannels() {
     this.clearPeerDisconnectTimer();
+    this.peerEverConnected = false;
+    this.pendingIceCandidates = [];
+    this.viewerPeerReadyPromise = null;
     this.videoSender = null;
     if (this.inputChannel) this.inputChannel.onclose = null;
     if (this.fileChannel) {
@@ -1546,6 +1610,10 @@ class PrimeDeskApp {
       const conn = pc.connectionState;
       const ice = pc.iceConnectionState;
       if (conn === 'connected' || ice === 'connected' || ice === 'completed') {
+        this.peerEverConnected = true;
+        if (this.role === 'viewer' && this.dom.remoteVideo && this.dom.remoteVideo.srcObject && this.dom.remoteViewport.style.display === 'none') {
+          this.revealViewerViewport();
+        }
         if (conn !== 'disconnected' && conn !== 'failed' && ice !== 'disconnected' && ice !== 'failed') {
           this.clearPeerDisconnectTimer();
           return;
@@ -1562,17 +1630,25 @@ class PrimeDeskApp {
               console.warn('[WebRTC] Peer remained disconnected; closing session');
               this.endSession();
             }
-          }, 4500);
+          }, 7000);
         }
         return;
       }
       if (conn === 'failed' || conn === 'closed' || ice === 'failed' || ice === 'closed') {
         this.clearPeerDisconnectTimer();
         console.warn('[WebRTC] Peer connection state:', conn, 'ICE:', ice);
+        const hadConnected = this.peerEverConnected;
         this.cleanupFileTransfers();
         this.hideTransferToast();
         if ((conn === 'failed' || ice === 'failed') && this.role) {
           this.endSession();
+          if (!hadConnected) {
+            this.showCustomAlert(
+              'Peer Connection Failed',
+              'Could not establish a media channel between both PCs. Ensure Windows Firewall allowed PrimeDesk or check network/proxy rules.',
+              'warning'
+            );
+          }
         }
       }
     };
@@ -1591,34 +1667,45 @@ class PrimeDeskApp {
       this.dom.dashboardView.style.display = 'none';
       this.dom.addressBookView.style.display = 'none';
 
-      const sources = await window.primeDeskAPI.getSources();
+      const [sources, iceConfig] = await Promise.all([
+        window.primeDeskAPI.getSources(),
+        this.resolveIceServers(this.myCode)
+      ]);
       const primarySource = sources[0];
-
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: this.audioEnabled ? {
-          mandatory: {
-            chromeMediaSource: 'desktop'
-          }
-        } : false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: primarySource.id,
-            minWidth: 1280,
-            maxWidth: 1920,
-            minHeight: 720,
-            maxHeight: 1080,
-            maxFrameRate: this.targetFps || 30
-          }
+      const videoConstraints = {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: primarySource.id,
+          minWidth: 1280,
+          maxWidth: 1920,
+          minHeight: 720,
+          maxHeight: 1080,
+          maxFrameRate: this.targetFps || 30
         }
-      });
+      };
+
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          audio: this.audioEnabled ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
+          video: videoConstraints
+        });
+      } catch (captureErr) {
+        if (!this.audioEnabled) throw captureErr;
+        console.warn('[Host] Audio desktop capture unavailable; retrying video-only:', captureErr.message);
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: videoConstraints
+        });
+      }
 
       if (this.autoRecord) {
         this.startSessionRecording(this.localStream);
       }
       this.appendAuditLog('session-started-host');
 
-      this.peerConnection = new RTCPeerConnection(this.getIceServers());
+      this.peerEverConnected = false;
+      this.pendingIceCandidates = [];
+      this.peerConnection = new RTCPeerConnection(iceConfig);
       this.attachPeerLifecycle(this.peerConnection);
 
       this.localStream.getTracks().forEach(track => {
@@ -1832,12 +1919,13 @@ class PrimeDeskApp {
   }
 
   stopHosting() {
+    const shouldAutoLock = this.autoLock && this.peerEverConnected;
     this.role = null;
     this.cleanupFileTransfers();
     this.stopSessionRecording();
     this.appendAuditLog('session-ended-host');
 
-    if (this.autoLock && window.primeDeskAPI) {
+    if (shouldAutoLock && window.primeDeskAPI) {
       console.log('[Security] Auto-locking Windows host workstation...');
       window.primeDeskAPI.sendInput('SPECIAL LOCK');
     }
@@ -1929,6 +2017,7 @@ class PrimeDeskApp {
     this.pendingConnectCode = cleanCode;
     this.savedPass = savedPass;
     this.showConnectingOverlay(cleanCode, 'Connecting to Remote PC...', 'Sending connection request. Waiting for remote approval...');
+    this.resolveIceServers(cleanCode).catch(() => {});
 
     try {
       const vws = new WebSocket(this.buildSignalingUrl('viewer', cleanCode));
@@ -1996,52 +2085,69 @@ class PrimeDeskApp {
     }
   }
 
+  revealViewerViewport() {
+    if (this.role !== 'viewer') return;
+    this.hideConnectingOverlay();
+    this.dom.dashboardView.style.display = 'none';
+    this.dom.addressBookView.style.display = 'none';
+    this.dom.remoteViewport.style.display = 'flex';
+    this.dom.remoteSessionTitle.textContent = `Connected: ${this.formatCode(this.pendingConnectCode)}`;
+  }
+
   startViewerPeer() {
-    this.peerConnection = new RTCPeerConnection(this.getIceServers());
-    this.attachPeerLifecycle(this.peerConnection);
+    this.peerEverConnected = false;
+    this.pendingIceCandidates = [];
+    this.viewerPeerReadyPromise = (async () => {
+      const iceConfig = await this.resolveIceServers(this.pendingConnectCode);
+      if (this.role !== 'viewer') return;
 
-    this.peerConnection.onicecandidate = (e) => {
-      if (e.candidate) {
-        this.sendSignal({ candidate: e.candidate });
-      }
-    };
+      this.peerConnection = new RTCPeerConnection(iceConfig);
+      this.attachPeerLifecycle(this.peerConnection);
 
-    this.peerConnection.ontrack = (event) => {
-      console.log('[Viewer] Remote video track received');
-      this.hideConnectingOverlay();
-      this.dom.remoteVideo.srcObject = event.streams[0];
-      this.dom.dashboardView.style.display = 'none';
-      this.dom.addressBookView.style.display = 'none';
-      this.dom.remoteViewport.style.display = 'flex';
-      this.dom.remoteSessionTitle.textContent = `Connected: ${this.formatCode(this.pendingConnectCode)}`;
+      this.peerConnection.onicecandidate = (e) => {
+        if (e.candidate) {
+          this.sendSignal({ candidate: e.candidate });
+        }
+      };
 
-      if (this.autoRecord) {
-        this.startSessionRecording(event.streams[0]);
-      }
-      this.appendAuditLog('session-connected-viewer');
+      this.peerConnection.ontrack = (event) => {
+        console.log('[Viewer] Remote video track received');
+        this.dom.remoteVideo.srcObject = event.streams[0];
+        this.showConnectingOverlay(this.pendingConnectCode, 'Establishing Media Tunnel...', 'Negotiating direct / relay video stream...');
+        this.dom.remoteVideo.addEventListener('loadeddata', () => this.revealViewerViewport(), { once: true });
+        if (this.peerConnection && (this.peerConnection.connectionState === 'connected' || this.peerConnection.iceConnectionState === 'connected')) {
+          this.revealViewerViewport();
+        }
 
-      this.startPingMonitor();
-      this.startClipboardPolling();
-    };
+        if (this.autoRecord) {
+          this.startSessionRecording(event.streams[0]);
+        }
+        this.appendAuditLog('session-connected-viewer');
 
-    this.peerConnection.ondatachannel = (e) => {
-      if (e.channel.label === 'input') {
-        this.inputChannel = e.channel;
-        this.inputChannel.onopen = () => console.log('[Viewer] Input Channel Open');
-      } else if (e.channel.label === 'chat') {
-        this.chatChannel = e.channel;
-        this.setupChatChannel(this.chatChannel);
-      } else if (e.channel.label === 'file') {
-        this.fileChannel = e.channel;
-        this.setupFileChannel(this.fileChannel);
-      } else if (e.channel.label === 'file-ops') {
-        this.fileOpsChannel = e.channel;
-        this.setupFileOpsChannel(this.fileOpsChannel);
-      } else if (e.channel.label === 'clipboard') {
-        this.clipboardChannel = e.channel;
-        this.setupClipboardChannel(this.clipboardChannel);
-      }
-    };
+        this.startPingMonitor();
+        this.startClipboardPolling();
+      };
+
+      this.peerConnection.ondatachannel = (e) => {
+        if (e.channel.label === 'input') {
+          this.inputChannel = e.channel;
+          this.inputChannel.onopen = () => console.log('[Viewer] Input Channel Open');
+        } else if (e.channel.label === 'chat') {
+          this.chatChannel = e.channel;
+          this.setupChatChannel(this.chatChannel);
+        } else if (e.channel.label === 'file') {
+          this.fileChannel = e.channel;
+          this.setupFileChannel(this.fileChannel);
+        } else if (e.channel.label === 'file-ops') {
+          this.fileOpsChannel = e.channel;
+          this.setupFileOpsChannel(this.fileOpsChannel);
+        } else if (e.channel.label === 'clipboard') {
+          this.clipboardChannel = e.channel;
+          this.setupClipboardChannel(this.clipboardChannel);
+        }
+      };
+    })();
+    return this.viewerPeerReadyPromise;
   }
 
   startPingMonitor() {
@@ -2095,7 +2201,19 @@ class PrimeDeskApp {
     }
 
     if (data.sdp) {
+      if (this.role === 'viewer' && this.viewerPeerReadyPromise) {
+        await this.viewerPeerReadyPromise;
+      }
+      if (!this.peerConnection) return;
+
       await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+
+      if (this.pendingIceCandidates.length > 0) {
+        const queued = this.pendingIceCandidates.splice(0);
+        for (const cand of queued) {
+          try { await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand)); } catch (e) {}
+        }
+      }
 
       if (data.sdp.type === 'offer') {
         const answer = await this.peerConnection.createAnswer();
@@ -2103,6 +2221,14 @@ class PrimeDeskApp {
         this.sendSignal({ sdp: this.peerConnection.localDescription });
       }
     } else if (data.candidate) {
+      if (this.role === 'viewer' && this.viewerPeerReadyPromise) {
+        await this.viewerPeerReadyPromise;
+      }
+      if (!this.peerConnection) return;
+      if (!this.peerConnection.remoteDescription) {
+        this.pendingIceCandidates.push(data.candidate);
+        return;
+      }
       try {
         await this.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
       } catch (e) {

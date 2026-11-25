@@ -3,6 +3,9 @@ main = "src/worker.js"
 compatibility_date = "2025-11-01"
 workers_dev = true
 
+[vars]
+TURN_KEY_ID = "79cee87b856319f4722dabf1ba37b315"
+
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "SignalingRoom"

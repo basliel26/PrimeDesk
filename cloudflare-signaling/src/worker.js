@@ -25,6 +25,8 @@ export class SignalingRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.recentViewerConnects = [];
+    this.turnMintTimes = [];
+    this.cachedTurn = null;
     this.ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}')
     );
@@ -50,11 +52,58 @@ export class SignalingRoom extends DurableObject {
   }
 
   async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/ice-servers") {
+      const hosts = this.ctx.getWebSockets("host");
+      if (hosts.length === 0) {
+        return jsonResponse({ error: "Terminal room offline" }, 403);
+      }
+      const now = Date.now();
+      if (this.cachedTurn && now < this.cachedTurn.expiresAt) {
+        return jsonResponse({ iceServers: this.cachedTurn.iceServers, turnEnabled: true, cached: true });
+      }
+      const fallbackStun = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
+      const turnKeyId = (this.env.TURN_KEY_ID || "").trim();
+      const turnToken = (this.env.TURN_KEY_API_TOKEN || "").trim();
+      if (!turnKeyId || !turnToken) {
+        return jsonResponse({ iceServers: fallbackStun, turnEnabled: false });
+      }
+      this.turnMintTimes = this.turnMintTimes.filter(t => now - t < 300000);
+      if (this.turnMintTimes.length >= 6) {
+        return jsonResponse({ iceServers: fallbackStun, rateLimited: true });
+      }
+      this.turnMintTimes.push(now);
+      try {
+        const cfRes = await fetch(
+          `https://rtc.live.cloudflare.com/v1/turn/keys/${turnKeyId}/credentials/generate-ice-servers`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${turnToken}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ ttl: 3600 })
+          }
+        );
+        if (!cfRes.ok) {
+          return jsonResponse({ iceServers: fallbackStun, turnEnabled: false, cfStatus: cfRes.status });
+        }
+        const data = await cfRes.json();
+        const servers = Array.isArray(data.iceServers)
+          ? data.iceServers
+          : (data.iceServers ? [data.iceServers] : []);
+        const iceServers = servers.length > 0 ? servers : fallbackStun;
+        this.cachedTurn = { iceServers, expiresAt: now + 20 * 60 * 1000 };
+        return jsonResponse({ iceServers, turnEnabled: true });
+      } catch (e) {
+        return jsonResponse({ iceServers: fallbackStun, turnEnabled: false });
+      }
+    }
+
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return jsonResponse({ status: "online", service: "PrimeDesk Edge Signaling" });
     }
 
-    const url = new URL(request.url);
     const role = url.searchParams.get("role");
     const code = url.searchParams.get("code");
     const token = url.searchParams.get("token") || "";
@@ -227,12 +276,33 @@ export class SignalingRoom extends DurableObject {
 
 export default {
   async fetch(request, env) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type"
+        }
+      });
+    }
+
     const url = new URL(request.url);
+    if (url.pathname === "/ice-servers") {
+      const code = url.searchParams.get("code") || "";
+      if (!CODE_REGEX.test(code)) {
+        return jsonResponse({ error: "Expected ?code=<9-digits>" }, 400);
+      }
+      const id = env.ROOMS.idFromName(code);
+      return env.ROOMS.get(id).fetch(request);
+    }
+
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return jsonResponse({
         status: "online",
         service: "PrimeDesk Edge Signaling",
         protocol: "9-digit",
+        turnReady: Boolean(env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN),
         timestamp: Date.now()
       });
     }
