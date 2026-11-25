@@ -118,6 +118,16 @@ body {
   border: 1px solid #1e293b;
 }
 
+.server-badge.clickable {
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.server-badge.clickable:hover {
+  border-color: #38bdf8;
+  background: #0f172a;
+}
+
 .status-dot {
   width: 7px;
   height: 7px;
@@ -129,9 +139,20 @@ body {
   box-shadow: 0 0 6px #10b981;
 }
 
+.status-dot.connecting {
+  background-color: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+  animation: pulseDot 1.4s infinite ease-in-out;
+}
+
 .status-dot.disconnected {
   background-color: #ef4444;
   box-shadow: 0 0 6px #ef4444;
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .icon-btn {

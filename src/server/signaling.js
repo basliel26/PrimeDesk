@@ -88,6 +88,11 @@ wss.on('connection', (ws) => {
           cleanup();
           break;
         }
+
+        case 'ping': {
+          ws.send(JSON.stringify({ type: 'pong' }));
+          break;
+        }
       }
     } catch (e) {
       console.error('[Signaling] Parse error:', e);
@@ -113,9 +118,21 @@ wss.on('connection', (ws) => {
     }
   };
 
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   ws.on('close', cleanup);
   ws.on('error', cleanup);
 });
+
+const keepaliveInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => clearInterval(keepaliveInterval));
 
 server.listen(PORT, () => {
   console.log(`[PrimeDesk] Enterprise Signaling Server active on port ${PORT}`);

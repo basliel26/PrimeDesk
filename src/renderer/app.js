@@ -43,13 +43,23 @@ class PrimeDeskApp {
     this.stunServer = localStorage.getItem('primedesk_stun_server') || 'stun:stun.l.google.com:19302';
 
     let savedProxyMode = localStorage.getItem('primedesk_proxy_mode');
-    if (!savedProxyMode || savedProxyMode === 'direct') {
+    if (!savedProxyMode) {
+      savedProxyMode = 'system';
+      localStorage.setItem('primedesk_proxy_mode', 'system');
+    } else if (savedProxyMode === 'direct' && !localStorage.getItem('primedesk_proxy_migrated_v1')) {
       savedProxyMode = 'system';
       localStorage.setItem('primedesk_proxy_mode', 'system');
     }
+    localStorage.setItem('primedesk_proxy_migrated_v1', 'true');
     this.proxyMode = savedProxyMode;
     this.proxyServer = localStorage.getItem('primedesk_proxy_server') || '';
     this.proxyBypass = localStorage.getItem('primedesk_proxy_bypass') || '<local>;127.0.0.1;localhost';
+
+    this.wsReconnectTimer = null;
+    this.wsConnectTimeoutTimer = null;
+    this.wsKeepaliveTimer = null;
+    this.isConnectingSignaling = false;
+    this.lastConnectionDiagnostic = null;
 
     this.targetFps = parseInt(localStorage.getItem('primedesk_target_fps') || '30', 10);
     this.qualityProfile = localStorage.getItem('primedesk_quality_profile') || 'balanced';
@@ -106,11 +116,15 @@ class PrimeDeskApp {
       if (!window.primeDeskAPI || !window.primeDeskAPI.setNetworkProxy) return;
       let rules = null;
       if (this.proxyMode === 'manual' && this.proxyServer.trim()) {
-        rules = `http=${this.proxyServer.trim()};https=${this.proxyServer.trim()}`;
+        const raw = this.proxyServer.trim();
+        rules = (raw.includes('=') || /^socks/i.test(raw))
+          ? raw
+          : raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
       }
       await window.primeDeskAPI.setNetworkProxy({
         mode: this.proxyMode,
-        rules
+        rules,
+        bypass: this.proxyBypass
       });
     } catch (err) {
       console.warn('[Network] Proxy configuration warning:', err);
@@ -301,6 +315,7 @@ class PrimeDeskApp {
     this.dom = {
       appContainer: document.getElementById('appContainer'),
       appHeader: document.getElementById('appHeader'),
+      serverStatusBadge: document.getElementById('serverStatusBadge'),
       serverDot: document.getElementById('serverDot'),
       serverStatusText: document.getElementById('serverStatusText'),
       settingsBtn: document.getElementById('settingsBtn'),
@@ -708,6 +723,13 @@ class PrimeDeskApp {
       this.dom.settingsModal.style.display = 'flex';
     });
 
+    // Server Status Badge Diagnostics
+    if (this.dom.serverStatusBadge) {
+      this.dom.serverStatusBadge.addEventListener('click', () => {
+        this.showConnectionDiagnostics();
+      });
+    }
+
     this.dom.closeSettingsBtn.addEventListener('click', () => {
       this.dom.settingsModal.style.display = 'none';
     });
@@ -723,12 +745,17 @@ class PrimeDeskApp {
       this.preventSleep = this.dom.preventSleepToggle ? this.dom.preventSleepToggle.checked : this.preventSleep;
 
       // Network & Proxy (Auto-configured based on mode)
+      const oldProxyMode = this.proxyMode;
+      const oldProxyServer = this.proxyServer;
+      const oldProxyBypass = this.proxyBypass;
+
       const newMode = (this.dom.modeLan && this.dom.modeLan.checked) ? 'lan' : 'cloud';
       const newUrl = (newMode === 'cloud') ? DEFAULT_CLOUD_SIGNALING_URL : 'ws://localhost:9000';
       const newStun = this.dom.stunInput ? (this.dom.stunInput.value.trim() || 'stun:stun.l.google.com:19302') : this.stunServer;
       this.proxyMode = this.dom.proxyModeSelect ? this.dom.proxyModeSelect.value : this.proxyMode;
       this.proxyServer = this.dom.proxyServerInput ? this.dom.proxyServerInput.value.trim() : this.proxyServer;
       this.proxyBypass = this.dom.proxyBypassInput ? this.dom.proxyBypassInput.value.trim() : this.proxyBypass;
+      const proxyChanged = (this.proxyMode !== oldProxyMode || this.proxyServer !== oldProxyServer || this.proxyBypass !== oldProxyBypass);
 
       // Display & Quality
       this.targetFps = this.dom.targetFpsSelect ? (parseInt(this.dom.targetFpsSelect.value, 10) || 30) : this.targetFps;
@@ -765,6 +792,7 @@ class PrimeDeskApp {
       localStorage.setItem('primedesk_stun_server', this.stunServer);
       localStorage.setItem('primedesk_server_mode', this.serverMode);
       localStorage.setItem('primedesk_proxy_mode', this.proxyMode);
+      localStorage.setItem('primedesk_proxy_migrated_v1', 'true');
       localStorage.setItem('primedesk_proxy_server', this.proxyServer);
       localStorage.setItem('primedesk_proxy_bypass', this.proxyBypass);
 
@@ -793,7 +821,7 @@ class PrimeDeskApp {
 
       this.dom.settingsModal.style.display = 'none';
 
-      if (urlChanged) {
+      if (urlChanged || proxyChanged || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
         this.connectSignaling();
       }
     });
@@ -991,52 +1019,216 @@ class PrimeDeskApp {
     });
   }
 
-  connectSignaling() {
+  clearSignalingTimers() {
+    if (this.wsReconnectTimer) {
+      clearTimeout(this.wsReconnectTimer);
+      this.wsReconnectTimer = null;
+    }
+    if (this.wsConnectTimeoutTimer) {
+      clearTimeout(this.wsConnectTimeoutTimer);
+      this.wsConnectTimeoutTimer = null;
+    }
+    if (this.wsKeepaliveTimer) {
+      clearInterval(this.wsKeepaliveTimer);
+      this.wsKeepaliveTimer = null;
+    }
+  }
+
+  scheduleSignalingReconnect(attemptId, delayMs = 4000) {
+    if (this.wsReconnectTimer) {
+      clearTimeout(this.wsReconnectTimer);
+    }
+    this.wsReconnectTimer = setTimeout(() => {
+      if (attemptId === this.signalingAttemptId) {
+        this.connectSignaling();
+      }
+    }, delayMs);
+  }
+
+  async connectSignaling() {
+    this.signalingAttemptId = (this.signalingAttemptId || 0) + 1;
+    const attemptId = this.signalingAttemptId;
+
+    this.clearSignalingTimers();
     if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
+      const oldWs = this.ws;
+      this.ws = null;
+      oldWs.onopen = null;
+      oldWs.onmessage = null;
+      oldWs.onclose = null;
+      oldWs.onerror = null;
+      try { oldWs.close(); } catch (e) {}
     }
 
     const isCloud = this.signalingUrl.includes('onrender.com') || this.serverMode === 'cloud';
-    this.updateServerStatus(false, isCloud ? 'Connecting to Cloud...' : 'Connecting to LAN...');
+    this.updateServerStatus('connecting', isCloud ? 'Connecting to Cloud...' : 'Connecting to LAN...');
+
+    let probeNote = null;
+    let httpReachable = false;
+
+    if (isCloud && window.primeDeskAPI && window.primeDeskAPI.probeAndRecoverCloud) {
+      try {
+        const probe = await window.primeDeskAPI.probeAndRecoverCloud({
+          signalingUrl: this.signalingUrl,
+          proxyMode: this.proxyMode,
+          proxyServer: this.proxyServer,
+          proxyBypass: this.proxyBypass
+        });
+
+        if (attemptId !== this.signalingAttemptId) return;
+
+        if (!probe.ok) {
+          this.lastConnectionDiagnostic = probe;
+          const dotState = probe.reason === 'server-waking' ? 'connecting' : 'disconnected';
+          this.updateServerStatus(dotState, probe.summary || 'Cloud Unreachable');
+          this.scheduleSignalingReconnect(attemptId, probe.reason === 'server-waking' ? 3500 : 6000);
+          return;
+        }
+
+        httpReachable = true;
+        if (probe.recovered && probe.note) {
+          probeNote = probe.note;
+          console.log('[Network]', probe.note);
+        }
+      } catch (err) {
+        console.warn('[Network] Cloud probe warning:', err);
+      }
+    }
+
+    if (attemptId !== this.signalingAttemptId) return;
 
     try {
-      this.ws = new WebSocket(this.signalingUrl);
+      const ws = new WebSocket(this.signalingUrl);
+      this.ws = ws;
 
-      this.ws.onopen = () => {
-        this.updateServerStatus(true, isCloud ? 'Cloud Online' : 'Signaling: Online');
-        // Automatically register terminal address immediately upon opening app!
+      this.wsConnectTimeoutTimer = setTimeout(() => {
+        if (attemptId !== this.signalingAttemptId || this.ws !== ws) return;
+        if (ws.readyState === WebSocket.CONNECTING) {
+          console.warn('[Signaling] WebSocket handshake timed out');
+          ws.onopen = null;
+          ws.onmessage = null;
+          ws.onclose = null;
+          ws.onerror = null;
+          try { ws.close(); } catch (e) {}
+          this.ws = null;
+          this.lastConnectionDiagnostic = {
+            reason: 'ws-timeout',
+            summary: isCloud ? 'Cloud Timeout' : 'Signaling Timeout',
+            errorCode: 'WS_HANDSHAKE_TIMEOUT',
+            details: httpReachable
+              ? 'Cloud server responded via HTTPS, but the WebSocket handshake timed out. Check if a firewall or proxy is blocking WebSocket tunnels.'
+              : 'Timed out opening signaling connection.'
+          };
+          this.updateServerStatus('disconnected', this.lastConnectionDiagnostic.summary);
+          this.scheduleSignalingReconnect(attemptId, 4000);
+        }
+      }, 12000);
+
+      ws.onopen = () => {
+        if (attemptId !== this.signalingAttemptId || this.ws !== ws) return;
+        this.clearSignalingTimers();
+        this.lastConnectionDiagnostic = probeNote ? { note: probeNote } : null;
+        this.updateServerStatus('connected', isCloud ? 'Cloud Online' : 'Signaling: Online');
         this.registerHostOnServer();
+
+        // Keep WebSocket tunnel alive through proxies and Cloudflare/Render idle timeouts
+        this.wsKeepaliveTimer = setInterval(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            try { this.ws.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
+          }
+        }, 25000);
       };
 
-      this.ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
+        if (attemptId !== this.signalingAttemptId || this.ws !== ws) return;
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'pong') return;
           this.handleSignalingMessage(msg);
         } catch (e) {
           console.error('[Signaling] Message error:', e);
         }
       };
 
-      this.ws.onclose = () => {
-        this.updateServerStatus(false, isCloud ? 'Connecting to Cloud...' : 'Signaling: Offline');
-        setTimeout(() => this.connectSignaling(), 4000);
+      ws.onclose = () => {
+        if (attemptId !== this.signalingAttemptId || this.ws !== ws) return;
+        this.clearSignalingTimers();
+        this.ws = null;
+        if (isCloud && httpReachable && !this.lastConnectionDiagnostic) {
+          this.lastConnectionDiagnostic = {
+            reason: 'ws-blocked',
+            summary: 'WebSocket Blocked',
+            errorCode: 'WS_CLOSE_1006',
+            details: 'HTTPS reached the cloud server, but the WebSocket tunnel closed unexpectedly. A firewall or proxy on this network may be blocking WebSocket upgrades.'
+          };
+        }
+        const label = (this.lastConnectionDiagnostic && this.lastConnectionDiagnostic.summary)
+          || (isCloud ? 'Connecting to Cloud...' : 'Signaling: Offline');
+        this.updateServerStatus('disconnected', label);
+        this.scheduleSignalingReconnect(attemptId, 4500);
       };
 
-      this.ws.onerror = () => {
-        this.updateServerStatus(false, isCloud ? 'Connecting to Cloud...' : 'Signaling: Error');
+      ws.onerror = () => {
+        if (attemptId !== this.signalingAttemptId || this.ws !== ws) return;
+        console.warn('[Signaling] WebSocket error event');
       };
     } catch (e) {
-      this.updateServerStatus(false, 'Signaling: Failed');
+      this.clearSignalingTimers();
+      this.updateServerStatus('disconnected', 'Signaling: Failed');
+      this.scheduleSignalingReconnect(attemptId, 5000);
     }
   }
 
-  updateServerStatus(connected, text) {
-    if (connected) {
-      this.dom.serverDot.className = 'status-dot connected';
-    } else {
-      this.dom.serverDot.className = 'status-dot disconnected';
+  updateServerStatus(state, text) {
+    let dotClass = 'status-dot disconnected';
+    if (state === true || state === 'connected') {
+      dotClass = 'status-dot connected';
+    } else if (state === 'connecting') {
+      dotClass = 'status-dot connecting';
     }
+    this.dom.serverDot.className = dotClass;
     this.dom.serverStatusText.textContent = text;
+  }
+
+  async showConnectionDiagnostics() {
+    const isConnected = this.ws && this.ws.readyState === WebSocket.OPEN;
+    const isCloud = this.serverMode === 'cloud';
+
+    if (isConnected) {
+      const note = (this.lastConnectionDiagnostic && this.lastConnectionDiagnostic.note)
+        ? `\n\nNetwork Note: ${this.lastConnectionDiagnostic.note}`
+        : '';
+      await this.showCustomAlert(
+        isCloud ? 'Cloud Signaling Online' : 'Offline Mode Online',
+        `Connected to ${isCloud ? 'PrimeDesk Cloud Cluster' : 'Local Signaling Service'} (${this.signalingUrl}).\nActive Proxy Setting: ${this.proxyMode}${note}`,
+        'success'
+      );
+      return;
+    }
+
+    const diag = this.lastConnectionDiagnostic;
+    const msg = diag && diag.details
+      ? `${diag.details}\n\nProxy Mode: ${this.proxyMode}${diag.resolvedProxy ? ` (Resolved: ${diag.resolvedProxy})` : ''}${diag.errorCode ? `\nCode: ${diag.errorCode}` : ''}\n\nClick Confirm to open Network & Proxy Settings.`
+      : `Currently attempting to reach ${isCloud ? 'PrimeDesk Cloud Server' : 'Local Signaling Service'} using proxy mode "${this.proxyMode}".\n\nIf this PC uses a network proxy or needs Direct Connection, click Confirm to open Network & Proxy Settings.`;
+
+    const openSettings = await this.showCustomConfirm(
+      'Connection Diagnostics',
+      msg,
+      'warning'
+    );
+
+    if (openSettings && this.dom.settingsModal) {
+      this.syncSettingsToUI();
+      this.dom.settingsModal.style.display = 'flex';
+      if (this.dom.settingsNavItems && this.dom.settingsSections) {
+        this.dom.settingsNavItems.forEach(b => {
+          b.classList.toggle('active', b.dataset.section === 'network');
+        });
+        this.dom.settingsSections.forEach(s => {
+          s.classList.toggle('active', s.id === 'sec-network');
+        });
+      }
+    }
   }
 
   registerHostOnServer() {
@@ -1363,14 +1555,23 @@ class PrimeDeskApp {
       }));
     } else {
       const isCloud = this.signalingUrl.includes('onrender.com') || this.serverMode === 'cloud';
+      const diag = this.lastConnectionDiagnostic;
       this.connectSignaling();
-      await this.showCustomAlert(
-        'Connecting to Cloud Server',
-        isCloud
-          ? 'Connecting to the secure cloud signaling cluster (primedesk-signal.onrender.com). If the cloud service is waking up, this may take a few moments. Please wait a few seconds and try again.'
-          : 'Connecting to local offline signaling service. Please ensure the local signaling service is running and try again.',
-        'warning'
-      );
+      if (isCloud && diag && diag.details) {
+        await this.showCustomAlert(
+          diag.summary || 'Cloud Connection Issue',
+          `${diag.details}\n\nTip: Click the status pill at the top-right to open Network & Proxy Settings.`,
+          'warning'
+        );
+      } else {
+        await this.showCustomAlert(
+          isCloud ? 'Connecting to Cloud Server' : 'Connecting to Offline Service',
+          isCloud
+            ? 'Connecting to the secure cloud signaling cluster. Please wait a few seconds for the status indicator to show "Cloud Online" and try again.'
+            : 'Connecting to local offline signaling service. Please ensure the local signaling service is running and try again.',
+          'warning'
+        );
+      }
     }
   }
 

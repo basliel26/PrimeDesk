@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard, session, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard, session, dialog, net } = require('electron');
+const { execFile } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -7,6 +8,13 @@ const inputHandler = require('./inputHandler');
 let mainWindow = null;
 let privacyWindow = null;
 let normalBounds = { width: 1040, height: 720 };
+let lastProxyAuthIssue = false;
+
+app.on('login', (event, webContents, request, authInfo) => {
+  if (authInfo && authInfo.isProxy) {
+    lastProxyAuthIssue = true;
+  }
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -221,25 +229,230 @@ ipcMain.handle('close-window', () => {
   if (mainWindow) mainWindow.close();
 });
 
-// Proxy Management
+// Proxy Management & Network Diagnostics Helpers
+function normalizeProxyRules(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes('=') || /^socks/i.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+
+async function applyProxyConfig(config) {
+  const bypass = (config && config.bypass) ? config.bypass : '<local>;127.0.0.1;localhost';
+  const rules = config && config.rules ? normalizeProxyRules(config.rules) : null;
+  if (!config || config.mode === 'system') {
+    await session.defaultSession.setProxy({ mode: 'system' });
+  } else if (config.mode === 'manual' && rules) {
+    await session.defaultSession.setProxy({
+      mode: 'fixed_servers',
+      proxyRules: rules,
+      proxyBypassRules: bypass
+    });
+  } else if (config.mode === 'direct') {
+    await session.defaultSession.setProxy({ mode: 'direct' });
+  } else {
+    await session.defaultSession.setProxy({ mode: 'system' });
+  }
+}
+
+function getEnvProxy() {
+  return process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || '';
+}
+
+function getWinHttpProxy() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve('');
+    execFile('netsh', ['winhttp', 'show', 'proxy'], { timeout: 2000 }, (err, stdout) => {
+      if (err || !stdout) return resolve('');
+      const match = stdout.match(/Proxy Server\(s\)\s*:\s*(.+)/i);
+      if (!match) return resolve('');
+      const val = match[1].trim();
+      if (!val || /\(none\)|direct access/i.test(val)) return resolve('');
+      resolve(val);
+    });
+  });
+}
+
+async function probeHttpTarget(probeTarget, timeoutMs = 10000) {
+  lastProxyAuthIssue = false;
+  try {
+    const res = await net.fetch(probeTarget, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    return { ok: res.ok, status: res.status, proxyAuth: lastProxyAuthIssue || res.status === 407 };
+  } catch (err) {
+    const msg = [err && err.message, err && err.cause && err.cause.message].filter(Boolean).join(' | ');
+    return { ok: false, error: msg || 'Network probe failed', proxyAuth: lastProxyAuthIssue };
+  }
+}
+
+function classifyNetworkFailure(probeResult, resolvedProxy) {
+  const errMsg = probeResult.error || '';
+  const status = probeResult.status || 0;
+
+  if (probeResult.proxyAuth || status === 407) {
+    return {
+      reason: 'proxy-auth',
+      summary: 'Proxy Auth Required',
+      errorCode: 'HTTP_407',
+      details: `The network proxy (${resolvedProxy}) requested username/password authentication. Configure an authenticated or direct connection.`
+    };
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return {
+      reason: 'server-waking',
+      summary: 'Waking Cloud Server...',
+      errorCode: `HTTP_${status}`,
+      details: `Cloud signaling service returned HTTP ${status} while spinning up. Retrying automatically.`
+    };
+  }
+  if (/ERR_INTERNET_DISCONNECTED/i.test(errMsg)) {
+    return {
+      reason: 'no-internet',
+      summary: 'No Internet',
+      errorCode: 'ERR_INTERNET_DISCONNECTED',
+      details: 'No active internet connection detected on this computer. Connect to Wi-Fi/Ethernet or switch to Offline Mode.'
+    };
+  }
+  if (/ERR_NAME_NOT_RESOLVED/i.test(errMsg)) {
+    return {
+      reason: 'dns-error',
+      summary: 'DNS Resolution Failed',
+      errorCode: 'ERR_NAME_NOT_RESOLVED',
+      details: `Cannot resolve primedesk-signal.onrender.com (Proxy: ${resolvedProxy}). Check DNS or network proxy settings.`
+    };
+  }
+  if (/ERR_CERT_|CERT_|SSL/i.test(errMsg)) {
+    return {
+      reason: 'ssl-error',
+      summary: 'Check PC Clock / TLS',
+      errorCode: 'ERR_CERT_INVALID',
+      details: `TLS certificate verification failed (${errMsg}). Check that this computer's date and time are accurate, or check HTTPS inspection proxy certificates.`
+    };
+  }
+  if (/ERR_PROXY_|ERR_TUNNEL_/i.test(errMsg)) {
+    return {
+      reason: 'proxy-unreachable',
+      summary: 'Proxy Unreachable',
+      errorCode: 'ERR_PROXY_CONNECTION_FAILED',
+      details: `Cannot connect through configured proxy (${resolvedProxy}). Open Settings → Network & Proxy to verify the proxy address or switch to Direct Connection.`
+    };
+  }
+  if (/TimeoutError|aborted due to timeout|ERR_TIMED_OUT|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET/i.test(errMsg)) {
+    const isDirect = !resolvedProxy || resolvedProxy === 'DIRECT';
+    return {
+      reason: 'timeout',
+      summary: isDirect ? 'Direct Blocked / Timeout' : 'Proxy Timed Out',
+      errorCode: errMsg.match(/ERR_[A-Z_]+/)?.[0] || 'ERR_TIMED_OUT',
+      details: isDirect
+        ? 'Direct connection to Cloud Server timed out (Resolved Proxy: DIRECT). If this network uses a proxy server, configure it in Windows Internet Settings or PrimeDesk Settings → Network & Proxy, or wait if the cloud server is waking up.'
+        : `Connection via proxy (${resolvedProxy}) timed out. Check if the proxy server is reachable or switch to Direct Connection.`
+    };
+  }
+  return {
+    reason: 'unknown',
+    summary: 'Cloud Unreachable',
+    errorCode: errMsg || (status ? `HTTP_${status}` : 'UNKNOWN'),
+    details: `Could not reach Cloud Server (Proxy: ${resolvedProxy}). Error: ${errMsg || `HTTP ${status}`}`
+  };
+}
+
 ipcMain.handle('set-network-proxy', async (event, config) => {
   try {
-    if (!config || config.mode === 'system') {
-      await session.defaultSession.setProxy({ mode: 'system' });
-    } else if (config.mode === 'manual' && config.rules) {
-      await session.defaultSession.setProxy({
-        proxyRules: config.rules,
-        proxyBypassRules: '<local>;127.0.0.1;localhost'
-      });
-    } else if (config.mode === 'direct') {
-      await session.defaultSession.setProxy({ mode: 'direct' });
-    } else {
-      await session.defaultSession.setProxy({ mode: 'system' });
-    }
+    await applyProxyConfig(config);
     return { success: true };
   } catch (err) {
     console.error('[Proxy] Failed to apply proxy configuration:', err);
     return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('probe-and-recover-cloud', async (event, config = {}) => {
+  const signalingUrl = config.signalingUrl || 'wss://primedesk-signal.onrender.com';
+  const probeTarget = signalingUrl.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
+  const configuredMode = config.proxyMode || 'system';
+  const initialConfig = {
+    mode: configuredMode,
+    rules: config.proxyServer || null,
+    bypass: config.proxyBypass || '<local>;127.0.0.1;localhost'
+  };
+
+  try {
+    await applyProxyConfig(initialConfig);
+    const resolvedProxy = await session.defaultSession.resolveProxy(probeTarget);
+    const firstProbe = await probeHttpTarget(probeTarget, 15000);
+
+    if (firstProbe.ok) {
+      return { ok: true, recovered: false, activeMode: configuredMode, resolvedProxy };
+    }
+
+    // Attempt intelligent automatic fallback only when in default 'system' mode and server wasn't merely returning 502/503 waking up
+    const isWaking = firstProbe.status === 502 || firstProbe.status === 503 || firstProbe.status === 504;
+    if (configuredMode === 'system' && !isWaking) {
+      const hasConfiguredProxy = resolvedProxy && !/^DIRECT$/i.test(resolvedProxy.trim());
+
+      if (hasConfiguredProxy) {
+        // Windows has a system proxy that failed/timed out — test if Direct Internet works!
+        await applyProxyConfig({ mode: 'direct' });
+        const directProbe = await probeHttpTarget(probeTarget, 7000);
+        if (directProbe.ok) {
+          console.log('[Proxy] System proxy failed; auto-recovered via Direct connection');
+          return {
+            ok: true,
+            recovered: true,
+            activeMode: 'direct',
+            resolvedProxy: 'DIRECT',
+            note: `System proxy (${resolvedProxy}) failed; automatically connected directly.`
+          };
+        }
+      }
+
+      // Check ENV & WinHTTP fallback proxies if Direct/System didn't succeed
+      const candidates = [getEnvProxy(), await getWinHttpProxy()]
+        .map(normalizeProxyRules)
+        .filter(Boolean);
+      const uniqueCandidates = [...new Set(candidates)];
+
+      for (const candidate of uniqueCandidates) {
+        if (resolvedProxy && resolvedProxy.includes(candidate)) continue;
+        await applyProxyConfig({ mode: 'manual', rules: candidate, bypass: initialConfig.bypass });
+        const proxyProbe = await probeHttpTarget(probeTarget, 7000);
+        if (proxyProbe.ok) {
+          console.log('[Proxy] Auto-recovered via detected proxy:', candidate);
+          return {
+            ok: true,
+            recovered: true,
+            activeMode: 'auto-detected',
+            detectedProxy: candidate,
+            resolvedProxy: `PROXY ${candidate}`,
+            note: `Auto-detected working proxy (${candidate}).`
+          };
+        }
+      }
+
+      // No fallback worked — restore original configured strategy
+      await applyProxyConfig(initialConfig);
+    }
+
+    const classified = classifyNetworkFailure(firstProbe, resolvedProxy);
+    return {
+      ok: false,
+      resolvedProxy,
+      ...classified
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'unknown',
+      summary: 'Network Probe Error',
+      errorCode: 'PROBE_EXCEPTION',
+      details: err.message
+    };
   }
 });
 

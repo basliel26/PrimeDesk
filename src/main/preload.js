@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('primeDeskAPI', {
 
   // Enterprise Settings & Media APIs
   setNetworkProxy: (config) => ipcRenderer.invoke('set-network-proxy', config),
+  probeAndRecoverCloud: (config) => ipcRenderer.invoke('probe-and-recover-cloud', config),
   selectDirectory: (defaultPath) => ipcRenderer.invoke('select-directory', defaultPath),
   getDefaultRecordingsDir: () => ipcRenderer.invoke('get-default-recordings-dir'),
   saveRecording: (payload) => ipcRenderer.invoke('save-recording', payload),
