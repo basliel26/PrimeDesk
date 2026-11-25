@@ -4,6 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PrimeDesk Enterprise - Remote Desktop Suite</title>
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem('primedesk_theme') || 'dark';
+        var resolved = pref === 'system'
+          ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : (pref === 'light' ? 'light' : 'dark');
+        document.documentElement.dataset.theme = resolved;
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -37,11 +48,11 @@
         </button>
         <button class="nav-tab" id="tabAddressBookBtn">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"></path>
-            <path d="M6 6h10"></path>
-            <path d="M6 10h10"></path>
+            <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
           </svg>
-          Address Book (<span id="addressBookCount">0</span>)
+          Devices
         </button>
       </nav>
 
@@ -50,6 +61,22 @@
           <span class="status-dot connecting" id="serverDot"></span>
           <span id="serverStatusText">Signaling: Connecting...</span>
         </div>
+        <button class="icon-btn theme-toggle-btn" id="themeToggleBtn" title="Switch Light / Dark Theme" aria-label="Switch Light or Dark Theme">
+          <svg class="theme-icon theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg class="theme-icon theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
         <button class="icon-btn" id="settingsBtn" title="Preferences & Network Configuration">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -152,15 +179,15 @@
 
             <div class="features-list">
               <div class="feature-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 Hardware-accelerated low-latency display & input
               </div>
               <div class="feature-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 Bidirectional clipboard synchronization & file transfer
               </div>
               <div class="feature-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 Unlimited duration with zero subscription restrictions
               </div>
             </div>
@@ -170,28 +197,63 @@
       </div>
     </main>
 
-    <!-- Address Book View -->
+    <!-- Devices & Session History View -->
     <main class="addressbook-view" id="addressBookView" style="display: none;">
       <div class="addressbook-container">
         <div class="addressbook-header">
           <div>
-            <h2>Device Directory</h2>
-            <p>Saved remote workstations for rapid one-click support</p>
+            <h2>Devices &amp; History</h2>
+            <p>Pinned workstations and recently connected remote terminals</p>
           </div>
-          <button class="btn btn-primary btn-add-workstation" id="addWorkstationBtn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Add Workstation
-          </button>
+          <div class="addressbook-actions">
+            <button class="btn btn-secondary btn-clear-history" id="clearHistoryBtn" style="display: none;" title="Clear unpinned recent connection history">
+              Clear Recent
+            </button>
+            <button class="btn btn-primary btn-add-workstation" id="addWorkstationBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Add Workstation
+            </button>
+          </div>
         </div>
 
-        <div class="workstation-cards-grid" id="workstationCardsGrid"></div>
+        <div class="devices-search-wrap">
+          <svg class="devices-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" class="devices-search-input" id="deviceSearchInput" placeholder="Search devices by name or 9-digit address...">
+        </div>
+
+        <div class="device-groups" id="workstationCardsGrid">
+          <section class="device-section" id="pinnedDevicesSection" style="display: none;">
+            <div class="device-section-header">
+              <span class="device-section-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                Pinned Favorites
+              </span>
+              <span class="device-section-count" id="pinnedDevicesCount">0</span>
+            </div>
+            <div class="workstation-cards-grid" id="pinnedWorkstationsGrid"></div>
+          </section>
+
+          <section class="device-section" id="recentDevicesSection" style="display: none;">
+            <div class="device-section-header">
+              <span class="device-section-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                Recent Connections
+              </span>
+              <span class="device-section-count" id="recentDevicesCount">0</span>
+            </div>
+            <div class="workstation-cards-grid" id="recentWorkstationsGrid"></div>
+          </section>
+        </div>
 
         <div class="empty-addressbook" id="emptyAddressBook" style="display: none;">
           <div class="empty-icon">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
           </div>
-          <h3>No Workstations Registered</h3>
-          <p>Add workstations to initiate support sessions with a single click.</p>
+          <h3 id="emptyAddressBookTitle">No Devices Recorded Yet</h3>
+          <p id="emptyAddressBookDesc">Connect to a remote terminal or add a workstation to see it here.</p>
         </div>
       </div>
     </main>
@@ -201,7 +263,7 @@
       <div class="modal incoming-modal">
         <div class="incoming-header">
           <div class="incoming-icon-ring">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="2">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
             </svg>
           </div>
@@ -213,15 +275,15 @@
 
         <div class="incoming-permissions">
           <div class="permission-item">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
             <span>Allow mouse and keyboard control</span>
           </div>
           <div class="permission-item">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
             <span>Allow clipboard synchronization</span>
           </div>
           <div class="permission-item">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
             <span>Allow direct file transfer</span>
           </div>
         </div>
@@ -357,11 +419,11 @@
       </div>
     </div>
 
-    <!-- Add Workstation Modal -->
+    <!-- Add / Edit Workstation Modal -->
     <div class="modal-backdrop" id="addWorkstationModal" style="display: none;">
       <div class="modal">
         <div class="modal-header">
-          <h3>Add Workstation to Directory</h3>
+          <h3 id="workstationModalTitle">Add Workstation to Directory</h3>
           <button class="modal-close" id="closeAddWorkstationBtn">✕</button>
         </div>
         <div class="modal-body">
@@ -373,6 +435,7 @@
 
           <label for="workstationPasswordInput">Unattended Master Password (Optional)</label>
           <input type="password" id="workstationPasswordInput" placeholder="Optional for automated access">
+          <p class="modal-hint" id="workstationPassHint" style="display: none;">Leave blank to keep the existing unattended password, or enter a new password to update it.</p>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" id="cancelAddWorkstationBtn">Cancel</button>
@@ -404,7 +467,7 @@
       <div class="modal settings-dialog">
         <div class="modal-header settings-dialog-header">
           <div class="settings-title-group">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
             </svg>
@@ -451,6 +514,24 @@
 
             <!-- Section 1: General & System -->
             <div class="settings-section active" id="sec-general">
+              <div class="setting-card">
+                <div class="setting-card-header">
+                  <div class="card-header-title">Appearance &amp; Theme</div>
+                  <div class="card-header-desc">Choose how PrimeDesk looks across the main dashboard and floating session pill.</div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row-info">
+                    <span class="setting-row-title">Color Theme</span>
+                    <span class="setting-row-desc">Select Dark slate, crisp Light mode, or follow your Windows appearance automatically.</span>
+                  </div>
+                  <select id="themeSelect" class="setting-select">
+                    <option value="dark">Dark (Default)</option>
+                    <option value="light">Light</option>
+                    <option value="system">Match System</option>
+                  </select>
+                </div>
+              </div>
+
               <div class="setting-card">
                 <div class="setting-card-header">
                   <div class="card-header-title">Application Lifecycle</div>
@@ -778,7 +859,7 @@
             <div class="settings-section" id="sec-about">
               <div class="about-card">
                 <div class="about-logo">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="2">
                     <rect x="2" y="3" width="20" height="14" rx="2"></rect>
                     <line x1="8" y1="21" x2="16" y2="21"></line>
                     <line x1="12" y1="17" x2="12" y2="21"></line>
@@ -788,7 +869,7 @@
                 </div>
                 <div class="about-details">
                   <h4>PrimeDesk Enterprise Remote Support Suite</h4>
-                  <p class="version-tag">Version 1.2.1 (Release Build) • Production Grade</p>
+                  <p class="version-tag">Version 1.2.2 (Release Build) • Production Grade</p>
                   <p class="arch-tag">x64 Native Architecture • Windows 10/11 / Windows Server</p>
                 </div>
               </div>
@@ -796,7 +877,7 @@
               <div class="about-meta-list">
                 <div class="meta-row">
                   <span class="meta-label">Commercial Status:</span>
-                  <span class="meta-val" style="color: #10b981;">100% Free Forever (Zero Subscriptions / Zero Time Restrictions)</span>
+                  <span class="meta-val">100% Free Forever (Zero Subscriptions / Zero Time Restrictions)</span>
                 </div>
                 <div class="meta-row">
                   <span class="meta-label">License:</span>

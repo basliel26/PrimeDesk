@@ -44,6 +44,7 @@ class PrimeDeskApp {
     this.remoteHostResolution = { width: 1920, height: 1080 };
 
     // Enterprise Preferences State
+    this.themePreference = localStorage.getItem('primedesk_theme') || 'dark';
     this.autoStart = false;
     this.closeAction = localStorage.getItem('primedesk_close_action') || 'tray';
     this.preventSleep = localStorage.getItem('primedesk_prevent_sleep') !== 'false';
@@ -129,20 +130,46 @@ class PrimeDeskApp {
     this.unattendedPassHash = localStorage.getItem('primedesk_unattended_hash') || '';
     this.pendingConnectCode = null;
     this.savedPass = null;
+    this.recordedCurrentSession = false;
+    this.editingDeviceId = null;
+    this.deviceSearchQuery = '';
 
-    // Address Book
-    this.addressBook = JSON.parse(localStorage.getItem('primedesk_address_book') || '[]');
+    // Devices & Connection History (migrates existing saved workstations as pinned)
+    this.addressBook = this.loadDeviceDirectory();
 
     this.init();
   }
 
   async init() {
     this.initDOMElements();
+    await this.applyTheme(this.themePreference, true);
     this.bindEvents();
     this.renderAddressBook();
     await this.applyProxySettings();
     await this.initSystemSettings();
     this.connectSignaling();
+  }
+
+  resolveThemeSync(preference) {
+    if (preference === 'light') return 'light';
+    if (preference === 'system') {
+      return (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+    }
+    return 'dark';
+  }
+
+  async applyTheme(preference = this.themePreference, syncNative = true) {
+    const pref = (preference === 'light' || preference === 'dark' || preference === 'system') ? preference : 'dark';
+    const initialResolved = this.resolveThemeSync(pref);
+    document.documentElement.dataset.theme = initialResolved;
+    if (syncNative && window.primeDeskAPI && window.primeDeskAPI.setAppTheme) {
+      try {
+        const res = await window.primeDeskAPI.setAppTheme(pref);
+        if (res && res.resolved) {
+          document.documentElement.dataset.theme = res.resolved;
+        }
+      } catch (e) {}
+    }
   }
 
   async applyProxySettings() {
@@ -477,6 +504,7 @@ class PrimeDeskApp {
       serverStatusBadge: document.getElementById('serverStatusBadge'),
       serverDot: document.getElementById('serverDot'),
       serverStatusText: document.getElementById('serverStatusText'),
+      themeToggleBtn: document.getElementById('themeToggleBtn'),
       settingsBtn: document.getElementById('settingsBtn'),
       settingsModal: document.getElementById('settingsModal'),
       closeSettingsBtn: document.getElementById('closeSettingsBtn'),
@@ -496,6 +524,7 @@ class PrimeDeskApp {
       dialogCancelBtn: document.getElementById('dialogCancelBtn'),
 
       // Enterprise General
+      themeSelect: document.getElementById('themeSelect'),
       autoStartToggle: document.getElementById('autoStartToggle'),
       closeActionSelect: document.getElementById('closeActionSelect'),
       preventSleepToggle: document.getElementById('preventSleepToggle'),
@@ -554,17 +583,29 @@ class PrimeDeskApp {
       remoteCodeInput: document.getElementById('remoteCodeInput'),
       connectBtn: document.getElementById('connectBtn'),
 
-      // Address Book DOM
+      // Devices & History DOM
       addWorkstationBtn: document.getElementById('addWorkstationBtn'),
+      clearHistoryBtn: document.getElementById('clearHistoryBtn'),
+      deviceSearchInput: document.getElementById('deviceSearchInput'),
       workstationCardsGrid: document.getElementById('workstationCardsGrid'),
+      pinnedDevicesSection: document.getElementById('pinnedDevicesSection'),
+      pinnedDevicesCount: document.getElementById('pinnedDevicesCount'),
+      pinnedWorkstationsGrid: document.getElementById('pinnedWorkstationsGrid'),
+      recentDevicesSection: document.getElementById('recentDevicesSection'),
+      recentDevicesCount: document.getElementById('recentDevicesCount'),
+      recentWorkstationsGrid: document.getElementById('recentWorkstationsGrid'),
       emptyAddressBook: document.getElementById('emptyAddressBook'),
+      emptyAddressBookTitle: document.getElementById('emptyAddressBookTitle'),
+      emptyAddressBookDesc: document.getElementById('emptyAddressBookDesc'),
       addWorkstationModal: document.getElementById('addWorkstationModal'),
+      workstationModalTitle: document.getElementById('workstationModalTitle'),
       closeAddWorkstationBtn: document.getElementById('closeAddWorkstationBtn'),
       cancelAddWorkstationBtn: document.getElementById('cancelAddWorkstationBtn'),
       saveWorkstationBtn: document.getElementById('saveWorkstationBtn'),
       workstationNameInput: document.getElementById('workstationNameInput'),
       workstationCodeInput: document.getElementById('workstationCodeInput'),
       workstationPasswordInput: document.getElementById('workstationPasswordInput'),
+      workstationPassHint: document.getElementById('workstationPassHint'),
 
       // Incoming Request Modal
       incomingModal: document.getElementById('incomingModal'),
@@ -652,6 +693,7 @@ class PrimeDeskApp {
   }
 
   syncSettingsToUI() {
+    if (this.dom.themeSelect) this.dom.themeSelect.value = this.themePreference;
     if (this.dom.autoStartToggle) this.dom.autoStartToggle.checked = this.autoStart;
     if (this.dom.closeActionSelect) this.dom.closeActionSelect.value = this.closeAction;
     if (this.dom.preventSleepToggle) this.dom.preventSleepToggle.checked = this.preventSleep;
@@ -930,6 +972,36 @@ class PrimeDeskApp {
       });
     }
 
+    // Header Quick Theme Toggle & Live Preview
+    if (this.dom.themeToggleBtn) {
+      this.dom.themeToggleBtn.addEventListener('click', async () => {
+        const isCurrentlyLight = document.documentElement.dataset.theme === 'light';
+        this.themePreference = isCurrentlyLight ? 'dark' : 'light';
+        localStorage.setItem('primedesk_theme', this.themePreference);
+        if (this.dom.themeSelect) this.dom.themeSelect.value = this.themePreference;
+        await this.applyTheme(this.themePreference, true);
+      });
+    }
+    if (this.dom.themeSelect) {
+      this.dom.themeSelect.addEventListener('change', () => {
+        this.applyTheme(this.dom.themeSelect.value, false);
+      });
+    }
+    if (window.primeDeskAPI && window.primeDeskAPI.onAppThemeUpdated) {
+      window.primeDeskAPI.onAppThemeUpdated((resolved) => {
+        if (this.themePreference === 'system') {
+          document.documentElement.dataset.theme = resolved === 'light' ? 'light' : 'dark';
+        }
+      });
+    }
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+        if (this.themePreference === 'system') {
+          this.applyTheme('system', true);
+        }
+      });
+    }
+
     // Settings Modal Open/Close/Save
     this.dom.settingsBtn.addEventListener('click', () => {
       this.syncSettingsToUI();
@@ -943,16 +1015,18 @@ class PrimeDeskApp {
       });
     }
 
-    this.dom.closeSettingsBtn.addEventListener('click', () => {
+    const cancelSettingsChanges = () => {
       this.dom.settingsModal.style.display = 'none';
-    });
+      this.applyTheme(this.themePreference, true);
+    };
 
-    this.dom.cancelSettingsBtn.addEventListener('click', () => {
-      this.dom.settingsModal.style.display = 'none';
-    });
+    this.dom.closeSettingsBtn.addEventListener('click', cancelSettingsChanges);
+
+    this.dom.cancelSettingsBtn.addEventListener('click', cancelSettingsChanges);
 
     this.dom.saveSettingsBtn.addEventListener('click', async () => {
       // General
+      this.themePreference = this.dom.themeSelect ? this.dom.themeSelect.value : this.themePreference;
       this.autoStart = this.dom.autoStartToggle ? this.dom.autoStartToggle.checked : this.autoStart;
       this.closeAction = this.dom.closeActionSelect ? this.dom.closeActionSelect.value : this.closeAction;
       this.preventSleep = this.dom.preventSleepToggle ? this.dom.preventSleepToggle.checked : this.preventSleep;
@@ -997,6 +1071,7 @@ class PrimeDeskApp {
       this.serverMode = newMode;
 
       // Persist to localStorage
+      localStorage.setItem('primedesk_theme', this.themePreference);
       localStorage.setItem('primedesk_auto_start', this.autoStart);
       localStorage.setItem('primedesk_close_action', this.closeAction);
       localStorage.setItem('primedesk_prevent_sleep', this.preventSleep);
@@ -1027,6 +1102,7 @@ class PrimeDeskApp {
       localStorage.setItem('primedesk_audit_log', this.auditLog);
 
       // Apply Native Windows Systems changes
+      await this.applyTheme(this.themePreference, true);
       if (window.primeDeskAPI && window.primeDeskAPI.setAutoStart) {
         await window.primeDeskAPI.setAutoStart(this.autoStart);
       }
@@ -1039,16 +1115,38 @@ class PrimeDeskApp {
       }
     });
 
-    // Address Book Modal
+    // Devices & History Modal (Add / Edit / Clear Recent / Filter)
     this.dom.addWorkstationBtn.addEventListener('click', () => {
-      this.dom.addWorkstationModal.style.display = 'flex';
+      this.openWorkstationModal(null);
     });
-    this.dom.closeAddWorkstationBtn.addEventListener('click', () => {
+    if (this.dom.clearHistoryBtn) {
+      this.dom.clearHistoryBtn.addEventListener('click', async () => {
+        const unpinnedCount = this.addressBook.filter(d => !d.pinned).length;
+        if (unpinnedCount === 0) return;
+        const ok = await this.showCustomConfirm(
+          'Clear Recent History',
+          `Remove ${unpinnedCount} unpinned recent connection${unpinnedCount === 1 ? '' : 's'}? Your pinned favorites will stay saved.`,
+          'warning'
+        );
+        if (ok) {
+          this.addressBook = this.addressBook.filter(d => d.pinned);
+          this.saveDeviceDirectory();
+          this.renderAddressBook();
+        }
+      });
+    }
+    if (this.dom.deviceSearchInput) {
+      this.dom.deviceSearchInput.addEventListener('input', (e) => {
+        this.deviceSearchQuery = (e.target.value || '').trim().toLowerCase();
+        this.renderAddressBook();
+      });
+    }
+    const closeWorkstationModal = () => {
+      this.editingDeviceId = null;
       this.dom.addWorkstationModal.style.display = 'none';
-    });
-    this.dom.cancelAddWorkstationBtn.addEventListener('click', () => {
-      this.dom.addWorkstationModal.style.display = 'none';
-    });
+    };
+    this.dom.closeAddWorkstationBtn.addEventListener('click', closeWorkstationModal);
+    this.dom.cancelAddWorkstationBtn.addEventListener('click', closeWorkstationModal);
     this.dom.saveWorkstationBtn.addEventListener('click', async () => {
       const name = this.dom.workstationNameInput.value.trim();
       const code = this.dom.workstationCodeInput.value.replace(/\D/g, '');
@@ -1059,21 +1157,57 @@ class PrimeDeskApp {
         return;
       }
 
-      this.addressBook.push({
-        id: Date.now(),
-        name,
-        code,
-        password: pass ? await this.hashPassword(pass) : ''
-      });
+      if (this.editingDeviceId !== null) {
+        const target = this.addressBook.find(d => d.id === this.editingDeviceId);
+        if (target) {
+          target.name = name;
+          target.code = code;
+          if (pass) {
+            target.password = await this.hashPassword(pass);
+          }
+          // Deduplicate if user changed code to match another existing record
+          this.addressBook = this.addressBook.filter(d => d.id === target.id || d.code !== code);
+        }
+        this.saveDeviceDirectory();
+        this.renderAddressBook();
+        closeWorkstationModal();
+        await this.showCustomAlert('Device Updated', `Saved changes for "${name}".`, 'success');
+        return;
+      }
 
-      localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
+      const existing = this.addressBook.find(d => d.code === code);
+      let actionTitle = 'Workstation Added';
+      let actionDesc = `Workstation "${name}" has been pinned to your directory.`;
+
+      if (existing) {
+        existing.name = name;
+        existing.pinned = true;
+        if (pass) {
+          existing.password = await this.hashPassword(pass);
+        }
+        actionTitle = 'Workstation Pinned';
+        actionDesc = `Workstation "${name}" has been updated and pinned to your directory.`;
+      } else {
+        this.addressBook.push({
+          id: Date.now(),
+          name,
+          code,
+          password: pass ? await this.hashPassword(pass) : '',
+          pinned: true,
+          lastConnectedAt: null,
+          connectCount: 0,
+          createdAt: Date.now()
+        });
+      }
+
+      this.saveDeviceDirectory();
       this.renderAddressBook();
 
       this.dom.workstationNameInput.value = '';
       this.dom.workstationCodeInput.value = '';
       this.dom.workstationPasswordInput.value = '';
-      this.dom.addWorkstationModal.style.display = 'none';
-      await this.showCustomAlert('Workstation Added', `Workstation "${name}" has been registered in your directory.`, 'success');
+      closeWorkstationModal();
+      await this.showCustomAlert(actionTitle, actionDesc, 'success');
     });
 
     // Unattended Password Prompt Modal
@@ -1127,7 +1261,7 @@ class PrimeDeskApp {
     this.dom.privacyToggleBtn.addEventListener('click', () => {
       this.privacyModeActive = !this.privacyModeActive;
       this.dom.privacyBtnText.textContent = this.privacyModeActive ? 'Privacy: ON' : 'Privacy: OFF';
-      this.dom.privacyToggleBtn.style.color = this.privacyModeActive ? '#10b981' : '#f1f5f9';
+      this.dom.privacyToggleBtn.style.color = this.privacyModeActive ? 'var(--success)' : '';
       this.sendInputCommand(`PRIVACY ${this.privacyModeActive ? '1' : '0'}`);
     });
 
@@ -1169,38 +1303,241 @@ class PrimeDeskApp {
     this.setupRemoteInputCapture();
   }
 
-  renderAddressBook() {
-    this.dom.addressBookCount.textContent = this.addressBook.length;
-    this.dom.workstationCardsGrid.innerHTML = '';
+  escapeHtml(text) {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
-    if (this.addressBook.length === 0) {
+  normalizeDeviceRecord(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const cleanCode = String(raw.code || '').replace(/\D/g, '');
+    if (!cleanCode) return null;
+    return {
+      id: raw.id || Date.now(),
+      name: (raw.name && String(raw.name).trim()) || 'Remote Terminal',
+      code: cleanCode,
+      password: raw.password || '',
+      pinned: typeof raw.pinned === 'boolean' ? raw.pinned : true,
+      lastConnectedAt: typeof raw.lastConnectedAt === 'number' ? raw.lastConnectedAt : null,
+      connectCount: typeof raw.connectCount === 'number' ? raw.connectCount : 0,
+      createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : (typeof raw.id === 'number' ? raw.id : Date.now())
+    };
+  }
+
+  loadDeviceDirectory() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('primedesk_address_book') || '[]');
+      if (!Array.isArray(parsed)) return [];
+      const seenCodes = new Set();
+      const normalized = [];
+      for (const item of parsed) {
+        const entry = this.normalizeDeviceRecord(item);
+        if (!entry) continue;
+        if (seenCodes.has(entry.code)) continue;
+        seenCodes.add(entry.code);
+        normalized.push(entry);
+      }
+      const pinned = normalized.filter(d => d.pinned);
+      const recent = normalized
+        .filter(d => !d.pinned)
+        .sort((a, b) => (b.lastConnectedAt || b.createdAt) - (a.lastConnectedAt || a.createdAt))
+        .slice(0, 15);
+      return [...pinned, ...recent];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  saveDeviceDirectory() {
+    localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
+  }
+
+  formatRelativeTime(ts) {
+    if (!ts || typeof ts !== 'number') return 'Saved preset';
+    const diffMs = Math.max(0, Date.now() - ts);
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'Connected just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    try {
+      return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } catch (e) {
+      return `${days}d ago`;
+    }
+  }
+
+  recordDeviceConnection(code) {
+    const cleanCode = String(code || '').replace(/\D/g, '');
+    if (cleanCode.length !== 9 || cleanCode === this.myCode) return;
+
+    const now = Date.now();
+    const existing = this.addressBook.find(d => d.code === cleanCode);
+    if (existing) {
+      existing.lastConnectedAt = now;
+      existing.connectCount = (existing.connectCount || 0) + 1;
+    } else {
+      this.addressBook.unshift({
+        id: now,
+        name: 'Remote Terminal',
+        code: cleanCode,
+        password: '',
+        pinned: false,
+        lastConnectedAt: now,
+        connectCount: 1,
+        createdAt: now
+      });
+    }
+
+    // Cap unpinned recent history at 15 items while never trimming pinned favorites
+    const pinned = this.addressBook.filter(d => d.pinned);
+    const recent = this.addressBook
+      .filter(d => !d.pinned)
+      .sort((a, b) => (b.lastConnectedAt || b.createdAt) - (a.lastConnectedAt || a.createdAt))
+      .slice(0, 15);
+    this.addressBook = [...pinned, ...recent];
+    this.saveDeviceDirectory();
+    this.renderAddressBook();
+  }
+
+  openWorkstationModal(existingDevice = null) {
+    this.editingDeviceId = existingDevice ? existingDevice.id : null;
+    if (this.dom.workstationModalTitle) {
+      this.dom.workstationModalTitle.textContent = existingDevice ? 'Edit Device Details' : 'Add Workstation to Directory';
+    }
+    if (this.dom.saveWorkstationBtn) {
+      this.dom.saveWorkstationBtn.textContent = existingDevice ? 'Save Changes' : 'Save Workstation';
+    }
+    if (existingDevice) {
+      this.dom.workstationNameInput.value = existingDevice.name || '';
+      this.dom.workstationCodeInput.value = this.formatCode(existingDevice.code || '');
+      this.dom.workstationPasswordInput.value = '';
+      this.dom.workstationPasswordInput.placeholder = existingDevice.password
+        ? '•••••• (Leave blank to keep)'
+        : 'Optional for automated access';
+      if (this.dom.workstationPassHint) {
+        this.dom.workstationPassHint.style.display = existingDevice.password ? 'block' : 'none';
+      }
+    } else {
+      this.dom.workstationNameInput.value = '';
+      this.dom.workstationCodeInput.value = '';
+      this.dom.workstationPasswordInput.value = '';
+      this.dom.workstationPasswordInput.placeholder = 'Optional for automated access';
+      if (this.dom.workstationPassHint) {
+        this.dom.workstationPassHint.style.display = 'none';
+      }
+    }
+    this.dom.addWorkstationModal.style.display = 'flex';
+    setTimeout(() => this.dom.workstationNameInput && this.dom.workstationNameInput.focus(), 40);
+  }
+
+  buildDeviceCard(h) {
+    const card = document.createElement('div');
+    card.className = `workstation-card${h.pinned ? ' pinned' : ''}`;
+    const safeName = this.escapeHtml(h.name);
+    const metaLabel = h.lastConnectedAt
+      ? `${this.formatRelativeTime(h.lastConnectedAt)}${h.connectCount > 1 ? ` · ${h.connectCount} sessions` : ''}`
+      : 'Saved workstation';
+    const badgeHtml = h.password ? '<span class="workstation-card-badge">Unattended</span>' : '';
+    const pinTitle = h.pinned ? 'Unpin from Favorites' : 'Pin to Favorites';
+
+    card.innerHTML = `
+      <div class="workstation-card-top">
+        <div class="workstation-card-info">
+          <div class="workstation-card-title">${safeName}</div>
+          <div class="workstation-card-code">${this.formatCode(h.code)}</div>
+          <div class="workstation-card-meta">${metaLabel}</div>
+        </div>
+        <div class="workstation-card-header-right">
+          ${badgeHtml}
+          <div class="workstation-card-mini-actions">
+            <button class="card-icon-btn pin-workstation-btn${h.pinned ? ' active' : ''}" data-id="${h.id}" title="${pinTitle}" aria-label="${pinTitle}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="${h.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+            </button>
+            <button class="card-icon-btn edit-workstation-btn" data-id="${h.id}" title="Edit Name &amp; Password" aria-label="Edit Device">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="workstation-card-actions">
+        <button class="btn btn-connect connect-workstation-btn" data-code="${h.code}" data-pass="${this.escapeHtml(h.password)}">
+          Connect
+        </button>
+        <button class="btn-delete-workstation delete-workstation-btn" data-id="${h.id}" title="Remove Device" aria-label="Remove Device">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>
+      </div>
+    `;
+    return card;
+  }
+
+  renderAddressBook() {
+    if (this.dom.addressBookCount) {
+      this.dom.addressBookCount.textContent = this.addressBook.length;
+    }
+    const pinnedContainer = this.dom.pinnedWorkstationsGrid || this.dom.workstationCardsGrid;
+    const recentContainer = this.dom.recentWorkstationsGrid || this.dom.workstationCardsGrid;
+    pinnedContainer.innerHTML = '';
+    if (recentContainer !== pinnedContainer) recentContainer.innerHTML = '';
+
+    const hasUnpinned = this.addressBook.some(d => !d.pinned);
+    if (this.dom.clearHistoryBtn) {
+      this.dom.clearHistoryBtn.style.display = hasUnpinned ? 'inline-flex' : 'none';
+    }
+
+    const q = (this.deviceSearchQuery || '').trim();
+    const qDigits = q.replace(/[-\s]/g, '');
+    const filtered = q
+      ? this.addressBook.filter(d => {
+          const name = (d.name || '').toLowerCase();
+          const code = (d.code || '').toLowerCase();
+          const formatted = this.formatCode(d.code || '').toLowerCase();
+          return name.includes(q)
+            || code.includes(q)
+            || (qDigits && code.includes(qDigits))
+            || formatted.includes(q);
+        })
+      : this.addressBook;
+
+    const pinnedList = filtered
+      .filter(d => d.pinned)
+      .sort((a, b) => (b.createdAt || b.id) - (a.createdAt || a.id));
+    const recentList = filtered
+      .filter(d => !d.pinned)
+      .sort((a, b) => (b.lastConnectedAt || b.createdAt || b.id) - (a.lastConnectedAt || a.createdAt || a.id));
+
+    if (this.dom.pinnedDevicesSection && this.dom.recentDevicesSection) {
+      this.dom.pinnedDevicesSection.style.display = pinnedList.length > 0 ? 'flex' : 'none';
+      this.dom.recentDevicesSection.style.display = recentList.length > 0 ? 'flex' : 'none';
+      if (this.dom.pinnedDevicesCount) this.dom.pinnedDevicesCount.textContent = pinnedList.length;
+      if (this.dom.recentDevicesCount) this.dom.recentDevicesCount.textContent = recentList.length;
+    }
+
+    if (pinnedList.length === 0 && recentList.length === 0) {
+      if (this.dom.emptyAddressBookTitle && this.dom.emptyAddressBookDesc) {
+        if (q && this.addressBook.length > 0) {
+          const rawQuery = this.dom.deviceSearchInput ? this.dom.deviceSearchInput.value.trim() : q;
+          this.dom.emptyAddressBookTitle.textContent = 'No Matching Devices';
+          this.dom.emptyAddressBookDesc.textContent = `No saved or recent devices matched "${rawQuery}".`;
+        } else {
+          this.dom.emptyAddressBookTitle.textContent = 'No Devices Recorded Yet';
+          this.dom.emptyAddressBookDesc.textContent = 'Connect to a remote terminal or add a workstation to see it here.';
+        }
+      }
       this.dom.emptyAddressBook.style.display = 'block';
       return;
     }
 
     this.dom.emptyAddressBook.style.display = 'none';
-    this.addressBook.forEach(h => {
-      const card = document.createElement('div');
-      card.className = 'workstation-card';
-      card.innerHTML = `
-        <div class="workstation-card-top">
-          <div>
-            <div class="workstation-card-title">${h.name}</div>
-            <div class="workstation-card-code">${this.formatCode(h.code)}</div>
-          </div>
-          <span class="workstation-card-badge">${h.password ? 'Unattended' : 'Interactive'}</span>
-        </div>
-        <div class="workstation-card-actions">
-          <button class="btn btn-connect connect-workstation-btn" data-code="${h.code}" data-pass="${h.password}">
-            Connect
-          </button>
-          <button class="btn-delete-workstation delete-workstation-btn" data-id="${h.id}" title="Remove Workstation">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-          </button>
-        </div>
-      `;
-      this.dom.workstationCardsGrid.appendChild(card);
-    });
+    pinnedList.forEach(h => pinnedContainer.appendChild(this.buildDeviceCard(h)));
+    recentList.forEach(h => recentContainer.appendChild(this.buildDeviceCard(h)));
 
     document.querySelectorAll('.connect-workstation-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -1214,19 +1551,39 @@ class PrimeDeskApp {
       });
     });
 
+    document.querySelectorAll('.pin-workstation-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = Number(e.currentTarget.getAttribute('data-id'));
+        const target = this.addressBook.find(item => item.id === id);
+        if (!target) return;
+        target.pinned = !target.pinned;
+        this.saveDeviceDirectory();
+        this.renderAddressBook();
+      });
+    });
+
+    document.querySelectorAll('.edit-workstation-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = Number(e.currentTarget.getAttribute('data-id'));
+        const target = this.addressBook.find(item => item.id === id);
+        if (target) this.openWorkstationModal(target);
+      });
+    });
+
     document.querySelectorAll('.delete-workstation-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
-        const id = parseInt(e.currentTarget.getAttribute('data-id'));
+        const id = Number(e.currentTarget.getAttribute('data-id'));
         const target = this.addressBook.find(item => item.id === id);
-        const name = target ? target.name : 'this workstation';
+        const name = target ? target.name : 'this device';
+        const label = target && !target.pinned ? `${name} (${this.formatCode(target.code)})` : name;
         const ok = await this.showCustomConfirm(
-          'Delete Workstation',
-          `Are you sure you want to remove "${name}" from your directory?`,
+          'Remove Device',
+          `Are you sure you want to remove "${label}" from your device list?`,
           'warning'
         );
         if (ok) {
           this.addressBook = this.addressBook.filter(item => item.id !== id);
-          localStorage.setItem('primedesk_address_book', JSON.stringify(this.addressBook));
+          this.saveDeviceDirectory();
           this.renderAddressBook();
         }
       });
@@ -1559,6 +1916,7 @@ class PrimeDeskApp {
   clearSessionChannels() {
     this.clearPeerDisconnectTimer();
     this.peerEverConnected = false;
+    this.recordedCurrentSession = false;
     this.pendingIceCandidates = [];
     this.viewerPeerReadyPromise = null;
     this.videoSender = null;
@@ -2015,6 +2373,7 @@ class PrimeDeskApp {
     this.closeViewerSocket(false);
     this.role = 'viewer';
     this.pendingConnectCode = cleanCode;
+    this.recordedCurrentSession = false;
     this.savedPass = savedPass;
     this.showConnectingOverlay(cleanCode, 'Connecting to Remote PC...', 'Sending connection request. Waiting for remote approval...');
     this.resolveIceServers(cleanCode).catch(() => {});
@@ -2092,6 +2451,10 @@ class PrimeDeskApp {
     this.dom.addressBookView.style.display = 'none';
     this.dom.remoteViewport.style.display = 'flex';
     this.dom.remoteSessionTitle.textContent = `Connected: ${this.formatCode(this.pendingConnectCode)}`;
+    if (!this.recordedCurrentSession && this.pendingConnectCode) {
+      this.recordedCurrentSession = true;
+      this.recordDeviceConnection(this.pendingConnectCode);
+    }
   }
 
   startViewerPeer() {
@@ -3197,7 +3560,7 @@ class PrimeDeskApp {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
       td.colSpan = 3;
-      td.style.color = '#64748b';
+      td.style.color = 'var(--text-subtle)';
       td.style.textAlign = 'center';
       td.style.padding = '24px';
       td.textContent = 'Folder is empty';
@@ -3334,7 +3697,12 @@ class PrimeDeskApp {
       this.clearSessionChannels();
       this.dom.remoteVideo.srcObject = null;
       this.dom.remoteViewport.style.display = 'none';
+      this.dom.addressBookView.style.display = 'none';
       this.dom.dashboardView.style.display = 'flex';
+      if (this.dom.tabSupportBtn && this.dom.tabAddressBookBtn) {
+        this.dom.tabSupportBtn.classList.add('active');
+        this.dom.tabAddressBookBtn.classList.remove('active');
+      }
       if (document.fullscreenElement) document.exitFullscreen();
     }
   }
@@ -3342,5 +3710,5 @@ class PrimeDeskApp {
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
-  new PrimeDeskApp();
+  window.primeDeskApp = new PrimeDeskApp();
 });

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard, session, dialog, net } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard, session, dialog, net, nativeTheme } = require('electron');
 const { execFile } = require('child_process');
 const path = require('path');
 const os = require('os');
@@ -11,6 +11,40 @@ let pillWindow = null;
 let privacyWindow = null;
 let normalBounds = { width: 1040, height: 720 };
 let lastProxyAuthIssue = false;
+let currentResolvedTheme = 'dark';
+
+function resolveAppTheme(preference) {
+  const pref = (preference === 'light' || preference === 'dark' || preference === 'system') ? preference : 'dark';
+  try {
+    nativeTheme.themeSource = pref;
+  } catch (e) {}
+  const resolved = pref === 'system'
+    ? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+    : pref;
+  currentResolvedTheme = resolved;
+  return resolved;
+}
+
+function applyResolvedThemeToWindows(resolved) {
+  const bg = resolved === 'light' ? '#f5f6f8' : '#121316';
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.setBackgroundColor(bg); } catch (e) {}
+  }
+  if (pillWindow && !pillWindow.isDestroyed()) {
+    pillWindow.webContents.send('pill-chat-message', { theme: resolved });
+  }
+}
+
+nativeTheme.on('updated', () => {
+  if (nativeTheme.themeSource === 'system') {
+    const resolved = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+    currentResolvedTheme = resolved;
+    applyResolvedThemeToWindows(resolved);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app-theme-updated', resolved);
+    }
+  }
+});
 
 app.on('login', (event, webContents, request, authInfo) => {
   if (authInfo && authInfo.isProxy) {
@@ -26,7 +60,7 @@ function createWindow() {
     minHeight: 74,
     maximizable: true,
     icon: path.join(__dirname, '..', '..', 'assets', 'primedesk.ico'),
-    backgroundColor: '#090e17',
+    backgroundColor: '#121316',
     frame: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -172,7 +206,9 @@ ipcMain.handle('set-pill-mode', () => {
 
   createdPill.setAlwaysOnTop(true, 'screen-saver');
   createdPill.setMenuBarVisibility(false);
-  createdPill.loadFile(path.join(__dirname, '..', 'renderer', 'pill.html'));
+  createdPill.loadFile(path.join(__dirname, '..', 'renderer', 'pill.html'), {
+    query: { theme: currentResolvedTheme }
+  });
 
   createdPill.on('closed', () => {
     if (pillWindow === createdPill) pillWindow = null;
@@ -221,6 +257,12 @@ ipcMain.handle('pill-notify-incoming', (event, payload) => {
     pillWindow.webContents.send('pill-chat-message', payload);
   }
   return true;
+});
+
+ipcMain.handle('set-app-theme', (event, preference) => {
+  const resolved = resolveAppTheme(preference);
+  applyResolvedThemeToWindows(resolved);
+  return { resolved };
 });
 
 ipcMain.handle('pill-terminate', () => {

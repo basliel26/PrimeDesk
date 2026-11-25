@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld('primeDeskAPI', {
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
+  setAppTheme: (theme) => ipcRenderer.invoke('set-app-theme', theme),
+  onAppThemeUpdated: (cb) => {
+    const handler = (_, resolved) => cb(resolved);
+    ipcRenderer.on('app-theme-updated', handler);
+    return () => ipcRenderer.removeListener('app-theme-updated', handler);
+  },
 
   // Enterprise Settings & Media APIs
   setNetworkProxy: (config) => ipcRenderer.invoke('set-network-proxy', config),
