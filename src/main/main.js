@@ -4,8 +4,10 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const inputHandler = require('./inputHandler');
+const fsHelper = require('./fsHelper');
 
 let mainWindow = null;
+let pillWindow = null;
 let privacyWindow = null;
 let normalBounds = { width: 1040, height: 720 };
 let lastProxyAuthIssue = false;
@@ -39,8 +41,11 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     inputHandler.stop();
+    fsHelper.cleanupAllHandles();
+    closePillWindow();
     if (privacyWindow) {
       try { privacyWindow.close(); } catch (e) {}
+      privacyWindow = null;
     }
     mainWindow = null;
   });
@@ -63,6 +68,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   inputHandler.stop();
+  fsHelper.cleanupAllHandles();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -121,29 +127,67 @@ ipcMain.handle('write-clipboard', (event, text) => {
   return true;
 });
 
-// Window mode switching for remote session floating pill
-ipcMain.handle('set-pill-mode', () => {
-  if (!mainWindow) return;
-  const primary = screen.getPrimaryDisplay();
-  const pillWidth = 390;
-  const pillHeight = 74;
-  const margin = 20;
+// Frameless floating pill window for remote host session
+function closePillWindow() {
+  if (!pillWindow) return;
+  const target = pillWindow;
+  pillWindow = null;
+  target._intentionalClose = true;
+  try {
+    if (!target.isDestroyed()) target.close();
+  } catch (e) {}
+}
 
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  mainWindow.setMaximizable(false);
-  mainWindow.setMinimizable(false);
-  mainWindow.setResizable(false);
-  mainWindow.setBounds({
-    x: primary.workArea.width - pillWidth - margin,
-    y: margin,
+ipcMain.handle('set-pill-mode', () => {
+  if (!mainWindow) return false;
+  const primary = screen.getPrimaryDisplay();
+  const pillWidth = 316;
+  const pillHeight = 54;
+  const margin = 18;
+
+  mainWindow.hide();
+  closePillWindow();
+
+  const createdPill = new BrowserWindow({
+    x: primary.workArea.x + primary.workArea.width - pillWidth - margin,
+    y: primary.workArea.y + margin,
     width: pillWidth,
-    height: pillHeight
+    height: pillHeight,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    skipTaskbar: false,
+    icon: path.join(__dirname, '..', '..', 'assets', 'primedesk.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false
+    }
   });
+  pillWindow = createdPill;
+
+  createdPill.setAlwaysOnTop(true, 'screen-saver');
+  createdPill.setMenuBarVisibility(false);
+  createdPill.loadFile(path.join(__dirname, '..', 'renderer', 'pill.html'));
+
+  createdPill.on('closed', () => {
+    if (pillWindow === createdPill) pillWindow = null;
+    if (!createdPill._intentionalClose && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.webContents.send('pill-terminate-session');
+    }
+  });
+
   return true;
 });
 
 ipcMain.handle('restore-normal-mode', () => {
-  if (!mainWindow) return;
+  closePillWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
   mainWindow.setAlwaysOnTop(false);
   mainWindow.setMaximizable(false);
   mainWindow.setMinimizable(true);
@@ -153,8 +197,61 @@ ipcMain.handle('restore-normal-mode', () => {
     height: normalBounds.height
   });
   mainWindow.center();
+  mainWindow.show();
+  mainWindow.focus();
   return true;
 });
+
+ipcMain.handle('pill-resize', (event, height) => {
+  if (!pillWindow || pillWindow.isDestroyed()) return false;
+  const b = pillWindow.getBounds();
+  pillWindow.setBounds({ x: b.x, y: b.y, width: b.width, height: Math.max(54, Math.min(420, Number(height) || 54)) });
+  return true;
+});
+
+ipcMain.handle('pill-send-chat', (event, text) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('pill-chat-outgoing', text);
+  }
+  return true;
+});
+
+ipcMain.handle('pill-notify-incoming', (event, payload) => {
+  if (pillWindow && !pillWindow.isDestroyed()) {
+    pillWindow.webContents.send('pill-chat-message', payload);
+  }
+  return true;
+});
+
+ipcMain.handle('pill-terminate', () => {
+  closePillWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.webContents.send('pill-terminate-session');
+  }
+  return true;
+});
+
+// Streaming File Manager & Windows CF_HDROP Clipboard APIs
+ipcMain.handle('fs-list-roots', () => fsHelper.listRoots());
+ipcMain.handle('fs-list-dir', (event, dirPath) => fsHelper.listDir(dirPath));
+ipcMain.handle('fs-mkdir', (event, dirPath) => fsHelper.makeDir(dirPath));
+ipcMain.handle('fs-trash', (event, paths) => fsHelper.trashPaths(paths));
+ipcMain.handle('fs-collect-items', (event, paths) => fsHelper.collectTransferItems(paths));
+ipcMain.handle('fs-open-read', (event, filePath) => fsHelper.openRead(filePath));
+ipcMain.handle('fs-read-chunk', (event, readId, offset, length) => fsHelper.readChunk(readId, offset, length));
+ipcMain.handle('fs-close-read', (event, readId) => fsHelper.closeRead(readId));
+ipcMain.handle('fs-begin-write', (event, baseDir, relPath) => fsHelper.beginWrite(baseDir, relPath));
+ipcMain.handle('fs-write-chunk', (event, writeId, data) => fsHelper.writeChunk(writeId, data));
+ipcMain.handle('fs-end-write', (event, writeId) => fsHelper.endWrite(writeId));
+ipcMain.handle('fs-abort-write', (event, writeId) => fsHelper.abortWrite(writeId));
+ipcMain.handle('fs-create-empty-dir', (event, baseDir, relPath) => fsHelper.createEmptyDir(baseDir, relPath));
+ipcMain.handle('fs-resolve-safe-target', (event, baseDir, relPath) => fsHelper.resolveSafeTarget(baseDir, relPath));
+ipcMain.handle('get-downloads-dir', () => app.getPath('downloads') || path.join(os.homedir(), 'Downloads'));
+
+ipcMain.handle('clip-get-files', () => fsHelper.getClipboardFiles());
+ipcMain.handle('clip-set-files', (event, paths) => fsHelper.setClipboardFiles(paths));
+ipcMain.handle('clip-create-stage-dir', () => fsHelper.createClipboardStageDir());
 
 // File Transfer Storage Handler
 ipcMain.handle('save-received-file', async (event, { filename, buffer }) => {

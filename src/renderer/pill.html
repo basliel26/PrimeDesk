@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PrimeDesk Session</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+    .pill-shell {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      border-radius: 14px;
+      color: #f1f5f9;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
+    .pill-bar {
+      height: 52px;
+      min-height: 52px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      -webkit-app-region: drag;
+    }
+    .pill-status {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+    .pulse-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      flex-shrink: 0;
+      animation: pulse 1.8s infinite ease-in-out;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.18); opacity: 0.65; }
+    }
+    .status-labels {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+      overflow: hidden;
+    }
+    .status-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #f8fafc;
+      white-space: nowrap;
+    }
+    .status-sub {
+      font-size: 0.67rem;
+      color: #38bdf8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pill-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+    .btn {
+      position: relative;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 8px;
+      height: 32px;
+      padding: 0 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: #334155; border-color: #475569; }
+    .btn.active { background: rgba(2, 132, 199, 0.25); border-color: #38bdf8; color: #38bdf8; }
+    .btn-end {
+      background: #dc2626;
+      border-color: #b91c1c;
+      color: #fff;
+    }
+    .btn-end:hover { background: #b91c1c; border-color: #991b1b; }
+    .badge {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 0.62rem;
+      font-weight: 700;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 999px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border: 1.5px solid #0f172a;
+    }
+    .chat-panel {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      border-top: 1px solid #1e293b;
+      background: #090e17;
+      min-height: 0;
+      -webkit-app-region: no-drag;
+    }
+    .chat-panel.open { display: flex; }
+    .chat-messages {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      user-select: text;
+    }
+    .msg {
+      max-width: 85%;
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-size: 0.76rem;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .msg.sent {
+      align-self: flex-end;
+      background: #0284c7;
+      color: #fff;
+    }
+    .msg.received {
+      align-self: flex-start;
+      background: #1e293b;
+      color: #f1f5f9;
+      border: 1px solid #334155;
+    }
+    .msg-sys {
+      align-self: center;
+      font-size: 0.68rem;
+      color: #64748b;
+    }
+    .chat-input-row {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-top: 1px solid #1e293b;
+      background: #0f172a;
+    }
+    .chat-input-row input {
+      flex: 1;
+      background: #090e17;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: #f1f5f9;
+      font-size: 0.75rem;
+      outline: none;
+    }
+    .chat-input-row input:focus { border-color: #38bdf8; }
+    .chat-input-row button {
+      background: #0284c7;
+      border: none;
+      color: #fff;
+      border-radius: 6px;
+      padding: 0 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .chat-input-row button:hover { background: #0369a1; }
+  </style>
+</head>
+<body>
+  <div class="pill-shell">
+    <div class="pill-bar">
+      <div class="pill-status">
+        <span class="pulse-dot"></span>
+        <div class="status-labels">
+          <span class="status-title">Session Active</span>
+          <span class="status-sub" id="pillSubText">Remote Control Active</span>
+        </div>
+      </div>
+      <div class="pill-actions">
+        <button class="btn" id="pillChatBtn" title="Support Chat">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          Chat
+          <span class="badge" id="pillUnreadBadge">0</span>
+        </button>
+        <button class="btn btn-end" id="pillEndBtn" title="End Remote Session">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          End
+        </button>
+      </div>
+    </div>
+
+    <div class="chat-panel" id="chatPanel">
+      <div class="chat-messages" id="chatMessages">
+        <div class="msg-sys">Support chat ready</div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="Message technician..." maxlength="300">
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const chatPanel = document.getElementById('chatPanel');
+    const chatBtn = document.getElementById('pillChatBtn');
+    const endBtn = document.getElementById('pillEndBtn');
+    const unreadBadge = document.getElementById('pillUnreadBadge');
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const pillSubText = document.getElementById('pillSubText');
+
+    let chatOpen = false;
+    let unread = 0;
+
+    function appendMsg(text, cls) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + cls;
+      div.textContent = text;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function updateBadge() {
+      unreadBadge.textContent = unread > 0 ? unread : '';
+      unreadBadge.style.display = unread > 0 ? 'inline-flex' : 'none';
+    }
+
+    chatBtn.addEventListener('click', () => {
+      chatOpen = !chatOpen;
+      chatPanel.classList.toggle('open', chatOpen);
+      chatBtn.classList.toggle('active', chatOpen);
+      window.primeDeskAPI.pillResize(chatOpen ? 360 : 54);
+      if (chatOpen) {
+        unread = 0;
+        updateBadge();
+        setTimeout(() => chatInput.focus(), 60);
+      }
+    });
+
+    endBtn.addEventListener('click', () => {
+      window.primeDeskAPI.pillTerminate();
+    });
+
+    function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      appendMsg(text, 'sent');
+      window.primeDeskAPI.pillSendChat(text);
+      chatInput.value = '';
+    }
+
+    sendBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendChat();
+    });
+
+    if (window.primeDeskAPI && window.primeDeskAPI.onPillChatIncoming) {
+      window.primeDeskAPI.onPillChatIncoming((payload) => {
+        if (payload && payload.statusText) {
+          pillSubText.textContent = payload.statusText;
+          return;
+        }
+        if (payload && payload.text) {
+          appendMsg(payload.text, 'received');
+          if (!chatOpen) {
+            unread++;
+            updateBadge();
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>

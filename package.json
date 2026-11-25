@@ -1,7 +1,7 @@
 {
   "name": "primedesk",
   "productName": "PrimeDesk",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "description": "Enterprise WebRTC Remote Desktop Support Suite",
   "main": "src/main/main.js",
   "scripts": {
@@ -48,6 +48,10 @@
       {
         "from": "src/native/PrimeInput.exe",
         "to": "native/PrimeInput.exe"
+      },
+      {
+        "from": "src/native/PrimeClipboard.exe",
+        "to": "native/PrimeClipboard.exe"
       }
     ],
     "win": {

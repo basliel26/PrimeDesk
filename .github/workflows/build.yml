@@ -29,14 +29,19 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Verify Native C# Input Worker
+      - name: Verify Native C# Helpers
         shell: pwsh
         run: |
           if (!(Test-Path src/native/PrimeInput.exe)) {
             Write-Host "Compiling PrimeInput.exe with csc.exe..."
             & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:"src\native\PrimeInput.exe" "src\native\PrimeInput.cs"
           }
+          if (!(Test-Path src/native/PrimeClipboard.exe)) {
+            Write-Host "Compiling PrimeClipboard.exe with csc.exe..."
+            & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:exe /r:System.Windows.Forms.dll /out:"src\native\PrimeClipboard.exe" "src\native\PrimeClipboard.cs"
+          }
           Write-Host "PrimeInput.exe size: $((Get-Item src/native/PrimeInput.exe).Length) bytes"
+          Write-Host "PrimeClipboard.exe size: $((Get-Item src/native/PrimeClipboard.exe).Length) bytes"
 
       - name: Compile Windows Installer & Portable Executable
         run: npm run dist

@@ -11,7 +11,8 @@ const ICE_SERVERS = {
   ]
 };
 
-const CHUNK_SIZE = 32 * 1024; // 32KB per file transfer chunk
+const CHUNK_SIZE = 64 * 1024; // 64KB streamed disk chunk
+const FILE_CLIP_AUTO_MAX_BYTES = 50 * 1024 * 1024; // 50MB auto-clipboard stage limit
 const DEFAULT_CLOUD_SIGNALING_URL = 'wss://primedesk-signal.onrender.com';
 
 class PrimeDeskApp {
@@ -21,6 +22,7 @@ class PrimeDeskApp {
     this.inputChannel = null;
     this.chatChannel = null;
     this.fileChannel = null;
+    this.fileOpsChannel = null;
     this.clipboardChannel = null;
     this.localStream = null;
     this.role = null; // 'host' | 'viewer'
@@ -84,11 +86,25 @@ class PrimeDeskApp {
 
     // In-Session Features State
     this.unreadChatCount = 0;
-    this.incomingFile = null;
     this.pingInterval = null;
     this.clipboardPollInterval = null;
     this.lastCopiedText = '';
+    this.lastCopiedFilesKey = '';
     this.privacyModeActive = false;
+
+    // File Manager & Streaming Transfer State
+    this.pendingFileOps = new Map();
+    this.nextFileOpId = 1;
+    this.activeSendTransfer = null;
+    this.activeReceiveTransfer = null;
+    this.transferQueue = [];
+    this.isSendingTransfer = false;
+    this.pendingRemoteClipTimer = null;
+    this.pendingRemoteClipData = null;
+    this.fmState = {
+      local: { path: '', parent: null, entries: [], selected: new Set(), roots: null },
+      remote: { path: '', parent: null, entries: [], selected: new Set(), roots: null }
+    };
 
     // Unattended Access State
     this.unattendedEnabled = localStorage.getItem('primedesk_unattended_enabled') === 'true';
@@ -422,10 +438,16 @@ class PrimeDeskApp {
 
       // Floating pill
       floatingPillView: document.getElementById('floatingPillView'),
-      pillSendFileBtn: document.getElementById('pillSendFileBtn'),
       pillStopBtn: document.getElementById('pillStopBtn'),
       pillChatBtn: document.getElementById('pillChatBtn'),
       pillChatBadge: document.getElementById('pillChatBadge'),
+
+      // Pending Connection Overlay
+      connectingOverlay: document.getElementById('connectingOverlay'),
+      connectingCodeLabel: document.getElementById('connectingCodeLabel'),
+      connectingTitle: document.getElementById('connectingTitle'),
+      connectingSubtitle: document.getElementById('connectingSubtitle'),
+      cancelConnectBtn: document.getElementById('cancelConnectBtn'),
 
       // Remote Viewport
       remoteViewport: document.getElementById('remoteViewport'),
@@ -433,8 +455,12 @@ class PrimeDeskApp {
       remoteSessionTitle: document.getElementById('remoteSessionTitle'),
       fitScreenBtn: document.getElementById('fitScreenBtn'),
       fitBtnText: document.getElementById('fitBtnText'),
-      transferFileBtn: document.getElementById('transferFileBtn'),
+      fileManagerBtn: document.getElementById('fileManagerBtn'),
       filePicker: document.getElementById('filePicker'),
+      remoteClipBanner: document.getElementById('remoteClipBanner'),
+      remoteClipBannerText: document.getElementById('remoteClipBannerText'),
+      pullRemoteClipBtn: document.getElementById('pullRemoteClipBtn'),
+      dismissRemoteClipBtn: document.getElementById('dismissRemoteClipBtn'),
       toggleChatBtn: document.getElementById('toggleChatBtn'),
       chatBadge: document.getElementById('chatBadge'),
       fullscreenBtn: document.getElementById('fullscreenBtn'),
@@ -447,6 +473,16 @@ class PrimeDeskApp {
       keyLockBtn: document.getElementById('keyLockBtn'),
       privacyToggleBtn: document.getElementById('privacyToggleBtn'),
       privacyBtnText: document.getElementById('privacyBtnText'),
+
+      // Dual-Pane File Manager
+      fileManagerModal: document.getElementById('fileManagerModal'),
+      closeFileManagerBtn: document.getElementById('closeFileManagerBtn'),
+      giveFilesBtn: document.getElementById('giveFilesBtn'),
+      takeFilesBtn: document.getElementById('takeFilesBtn'),
+      fmTransferStatus: document.getElementById('fmTransferStatus'),
+      fmTransferPercent: document.getElementById('fmTransferPercent'),
+      fmTransferProgressBar: document.getElementById('fmTransferProgressBar'),
+      fmCancelTransferBtn: document.getElementById('fmCancelTransferBtn'),
 
       // Chat
       chatDrawer: document.getElementById('chatDrawer'),
@@ -587,11 +623,55 @@ class PrimeDeskApp {
       }
     });
 
-    // Floating Pill Actions
-    this.dom.pillStopBtn.addEventListener('click', () => this.stopHosting());
-    if (this.dom.pillSendFileBtn) {
-      this.dom.pillSendFileBtn.addEventListener('click', () => {
-        this.dom.filePicker.click();
+    // Floating Pill & Native Pill IPC Actions
+    if (this.dom.pillStopBtn) {
+      this.dom.pillStopBtn.addEventListener('click', () => this.stopHosting());
+    }
+    if (window.primeDeskAPI && window.primeDeskAPI.onPillChatOutgoing) {
+      window.primeDeskAPI.onPillChatOutgoing((text) => {
+        if (!text) return;
+        this.sendChatMessage(text);
+        this.appendChatMessage(text, 'sent');
+      });
+    }
+    if (window.primeDeskAPI && window.primeDeskAPI.onPillTerminateSession) {
+      window.primeDeskAPI.onPillTerminateSession(() => {
+        if (this.role === 'host') {
+          this.stopHosting();
+        }
+      });
+    }
+
+    // Cancel Pending Connection Overlay
+    if (this.dom.cancelConnectBtn) {
+      this.dom.cancelConnectBtn.addEventListener('click', () => {
+        this.hideConnectingOverlay();
+        this.role = null;
+        this.pendingConnectCode = null;
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'leave' }));
+        }
+        if (this.peerConnection) {
+          try { this.peerConnection.close(); } catch (e) {}
+          this.peerConnection = null;
+        }
+      });
+    }
+
+    // Remote Copied Large File Prompt Banner
+    if (this.dom.pullRemoteClipBtn) {
+      this.dom.pullRemoteClipBtn.addEventListener('click', () => {
+        if (this.dom.remoteClipBanner) this.dom.remoteClipBanner.style.display = 'none';
+        if (this.pendingRemoteClipData) {
+          this.pullRemoteClipboardFiles(this.pendingRemoteClipData);
+          this.pendingRemoteClipData = null;
+        }
+      });
+    }
+    if (this.dom.dismissRemoteClipBtn) {
+      this.dom.dismissRemoteClipBtn.addEventListener('click', () => {
+        if (this.dom.remoteClipBanner) this.dom.remoteClipBanner.style.display = 'none';
+        this.pendingRemoteClipData = null;
       });
     }
 
@@ -946,15 +1026,11 @@ class PrimeDeskApp {
       if (e.key === 'Enter') sendChat();
     });
 
-    // File Transfer
-    this.dom.transferFileBtn.addEventListener('click', () => {
-      this.dom.filePicker.click();
-    });
-    this.dom.filePicker.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) this.sendFile(file);
-      e.target.value = '';
-    });
+    // Support-Giver Dual-Pane File Manager
+    if (this.dom.fileManagerBtn) {
+      this.dom.fileManagerBtn.addEventListener('click', () => this.openFileManager());
+    }
+    this.initFileManagerEvents();
 
     this.setupRemoteInputCapture();
   }
@@ -1257,10 +1333,12 @@ class PrimeDeskApp {
 
       case 'connection-accepted':
         console.log('[Viewer] Remote device accepted connection. Initializing peer...');
+        this.showConnectingOverlay(this.pendingConnectCode, 'Connection Approved', 'Establishing encrypted display & control channels...');
         this.startViewerPeer();
         break;
 
       case 'connection-declined':
+        this.hideConnectingOverlay();
         this.showCustomAlert('Connection Rejected', `Session declined: ${msg.reason || 'Declined by remote user'}`, 'warning');
         this.endSession();
         break;
@@ -1270,13 +1348,34 @@ class PrimeDeskApp {
         break;
 
       case 'session-ended':
+        this.hideConnectingOverlay();
+        if (this.dom.fileManagerModal) this.dom.fileManagerModal.style.display = 'none';
         this.showCustomAlert('Session Concluded', `Remote session ended: ${msg.reason || 'Disconnected'}`, 'info');
         this.endSession();
         break;
 
       case 'error':
+        this.hideConnectingOverlay();
+        if (this.role === 'viewer' && this.dom.remoteViewport.style.display === 'none') {
+          this.role = null;
+          this.pendingConnectCode = null;
+        }
         this.showCustomAlert('Signaling Notice', msg.message, 'warning');
         break;
+    }
+  }
+
+  showConnectingOverlay(code, title = 'Connecting to Remote PC...', subtitle = 'Waiting for remote host approval...') {
+    if (!this.dom.connectingOverlay) return;
+    if (this.dom.connectingCodeLabel) this.dom.connectingCodeLabel.textContent = this.formatCode(code || '');
+    if (this.dom.connectingTitle) this.dom.connectingTitle.textContent = title;
+    if (this.dom.connectingSubtitle) this.dom.connectingSubtitle.textContent = subtitle;
+    this.dom.connectingOverlay.style.display = 'flex';
+  }
+
+  hideConnectingOverlay() {
+    if (this.dom.connectingOverlay) {
+      this.dom.connectingOverlay.style.display = 'none';
     }
   }
 
@@ -1290,7 +1389,6 @@ class PrimeDeskApp {
       this.dom.appHeader.style.display = 'none';
       this.dom.dashboardView.style.display = 'none';
       this.dom.addressBookView.style.display = 'none';
-      this.dom.floatingPillView.style.display = 'flex';
 
       const sources = await window.primeDeskAPI.getSources();
       const primarySource = sources[0];
@@ -1333,6 +1431,9 @@ class PrimeDeskApp {
 
       this.fileChannel = this.peerConnection.createDataChannel('file');
       this.setupFileChannel(this.fileChannel);
+
+      this.fileOpsChannel = this.peerConnection.createDataChannel('file-ops');
+      this.setupFileOpsChannel(this.fileOpsChannel);
 
       this.clipboardChannel = this.peerConnection.createDataChannel('clipboard');
       this.setupClipboardChannel(this.clipboardChannel);
@@ -1388,6 +1489,9 @@ class PrimeDeskApp {
     dc.onopen = () => console.log('[Chat] Channel Ready');
     dc.onmessage = (event) => {
       this.appendChatMessage(event.data, 'received');
+      if (this.role === 'host' && window.primeDeskAPI && window.primeDeskAPI.pillNotifyIncoming) {
+        window.primeDeskAPI.pillNotifyIncoming({ text: event.data });
+      }
       if (this.dom.chatDrawer.style.display !== 'flex') {
         this.unreadChatCount++;
         this.updateChatBadge();
@@ -1397,59 +1501,38 @@ class PrimeDeskApp {
 
   setupFileChannel(dc) {
     dc.binaryType = 'arraybuffer';
-    dc.onopen = () => console.log('[File] Channel Ready');
+    dc.bufferedAmountLowThreshold = 256 * 1024;
+    dc.onopen = () => console.log('[File] Streaming Channel Ready');
+
+    // Serialize all file control + binary chunk messages strictly in arrival order
+    let rxChain = Promise.resolve();
+    dc.onmessage = (event) => {
+      const payload = event.data;
+      rxChain = rxChain.then(async () => {
+        if (typeof payload === 'string') {
+          try {
+            const msg = JSON.parse(payload);
+            await this.handleFileChannelControl(msg);
+          } catch (e) {
+            console.error('[File] Control error:', e);
+          }
+        } else if (payload instanceof ArrayBuffer) {
+          await this.handleFileChannelChunk(payload);
+        }
+      }).catch((err) => {
+        console.error('[File] RX queue error:', err);
+      });
+    };
+  }
+
+  setupFileOpsChannel(dc) {
+    dc.onopen = () => console.log('[FileOps] RPC Channel Ready');
     dc.onmessage = async (event) => {
-      if (!this.permFile) {
-        if (typeof event.data === 'string') {
-          console.warn('[File] File transfer blocked: Permission disabled in settings');
-        }
-        return;
-      }
-      if (typeof event.data === 'string') {
-        try {
-          const meta = JSON.parse(event.data);
-          if (meta.type === 'file-start') {
-            this.incomingFile = {
-              name: meta.name,
-              size: meta.size,
-              receivedSize: 0,
-              chunks: []
-            };
-            this.showTransferToast(`Receiving: ${meta.name}`, 0);
-          }
-        } catch (e) {}
-      } else if (event.data instanceof ArrayBuffer && this.incomingFile) {
-        this.incomingFile.chunks.push(event.data);
-        this.incomingFile.receivedSize += event.data.byteLength;
-        const pct = Math.round((this.incomingFile.receivedSize / this.incomingFile.size) * 100);
-        this.updateTransferProgress(pct);
-
-        if (this.incomingFile.receivedSize >= this.incomingFile.size) {
-          const blob = new Blob(this.incomingFile.chunks);
-          const fileName = this.incomingFile.name;
-
-          if (window.primeDeskAPI && window.primeDeskAPI.saveReceivedFile) {
-            try {
-              const arrayBuffer = await blob.arrayBuffer();
-              await window.primeDeskAPI.saveReceivedFile({ filename: fileName, buffer: arrayBuffer });
-            } catch (err) {
-              console.error('[File] Error saving file to Downloads:', err);
-            }
-          } else {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          }
-
-          this.showTransferToast(`Saved to Downloads: ${fileName}`, 100);
-          setTimeout(() => this.hideTransferToast(), 3500);
-          this.incomingFile = null;
-        }
+      try {
+        const msg = JSON.parse(event.data);
+        await this.handleFileOpsMessage(dc, msg);
+      } catch (e) {
+        console.error('[FileOps] RPC parse error:', e);
       }
     };
   }
@@ -1469,13 +1552,30 @@ class PrimeDeskApp {
             await window.primeDeskAPI.writeClipboard(data.text);
           }
         } else if (data.type === 'request-clip') {
-          if (window.primeDeskAPI) {
-            const currentText = await window.primeDeskAPI.readClipboard();
-            if (currentText) {
-              this.lastCopiedText = currentText;
-              dc.send(JSON.stringify({ type: 'clip', text: currentText }));
+          if (!window.primeDeskAPI) return;
+          if (this.permFile && window.primeDeskAPI.clipGetFiles) {
+            const clipFiles = await window.primeDeskAPI.clipGetFiles();
+            if (clipFiles && clipFiles.length > 0) {
+              const collected = await window.primeDeskAPI.fsCollectItems(clipFiles);
+              if (collected && collected.rootItems && collected.rootItems.length > 0) {
+                dc.send(JSON.stringify({
+                  type: 'clip-files-ready',
+                  paths: clipFiles,
+                  rootItems: collected.rootItems,
+                  totalSize: collected.totalSize
+                }));
+                return;
+              }
             }
           }
+          const currentText = await window.primeDeskAPI.readClipboard();
+          if (currentText) {
+            this.lastCopiedText = currentText;
+            dc.send(JSON.stringify({ type: 'clip', text: currentText }));
+          }
+        } else if (data.type === 'clip-files-ready') {
+          if (!this.permFile) return;
+          this.handleRemoteClipboardFilesReady(data);
         }
       } catch (e) {}
     };
@@ -1501,6 +1601,7 @@ class PrimeDeskApp {
 
   stopHosting() {
     this.role = null;
+    this.cleanupFileTransfers();
     this.stopSessionRecording();
     this.appendAuditLog('session-ended-host');
 
@@ -1519,7 +1620,7 @@ class PrimeDeskApp {
       window.primeDeskAPI.setPrivacyMode(false);
       window.primeDeskAPI.stopInputWorker();
     }
-    this.dom.floatingPillView.style.display = 'none';
+    if (this.dom.floatingPillView) this.dom.floatingPillView.style.display = 'none';
     this.dom.appHeader.style.display = 'flex';
     this.dom.dashboardView.style.display = 'flex';
 
@@ -1548,12 +1649,14 @@ class PrimeDeskApp {
     this.savedPass = savedPass;
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.showConnectingOverlay(code, 'Connecting to Remote PC...', 'Sending connection request. Waiting for remote approval...');
       this.ws.send(JSON.stringify({
         type: 'request-connect',
         code,
         clientName: 'Support Technician'
       }));
     } else {
+      this.role = null;
       const isCloud = this.signalingUrl.includes('onrender.com') || this.serverMode === 'cloud';
       const diag = this.lastConnectionDiagnostic;
       this.connectSignaling();
@@ -1586,6 +1689,7 @@ class PrimeDeskApp {
 
     this.peerConnection.ontrack = (event) => {
       console.log('[Viewer] Remote video track received');
+      this.hideConnectingOverlay();
       this.dom.remoteVideo.srcObject = event.streams[0];
       this.dom.dashboardView.style.display = 'none';
       this.dom.addressBookView.style.display = 'none';
@@ -1611,6 +1715,9 @@ class PrimeDeskApp {
       } else if (e.channel.label === 'file') {
         this.fileChannel = e.channel;
         this.setupFileChannel(this.fileChannel);
+      } else if (e.channel.label === 'file-ops') {
+        this.fileOpsChannel = e.channel;
+        this.setupFileOpsChannel(this.fileOpsChannel);
       } else if (e.channel.label === 'clipboard') {
         this.clipboardChannel = e.channel;
         this.setupClipboardChannel(this.clipboardChannel);
@@ -1754,10 +1861,41 @@ class PrimeDeskApp {
     });
 
     window.addEventListener('keydown', async (e) => {
-      if (this.dom.remoteViewport.style.display !== 'none' && document.activeElement !== this.dom.chatInput) {
-        // Intercept Ctrl+V (Paste local clipboard into remote host)
-        if (e.ctrlKey && (e.key === 'v' || e.key === 'V' || e.keyCode === 86)) {
+      const fmOpen = this.dom.fileManagerModal && this.dom.fileManagerModal.style.display !== 'none';
+      if (this.dom.remoteViewport.style.display !== 'none' && !fmOpen && document.activeElement !== this.dom.chatInput) {
+        // Intercept Ctrl+V (Paste local text OR CF_HDROP files into remote host)
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V' || e.keyCode === 86)) {
           e.preventDefault();
+
+          // If user copied on remote and immediately pastes inside remote, cancel auto-pull!
+          if (this.pendingRemoteClipTimer) {
+            clearTimeout(this.pendingRemoteClipTimer);
+            this.pendingRemoteClipTimer = null;
+          }
+          if (this.dom.remoteClipBanner) {
+            this.dom.remoteClipBanner.style.display = 'none';
+          }
+          this.pendingRemoteClipData = null;
+
+          if (this.permFile && window.primeDeskAPI && window.primeDeskAPI.clipGetFiles) {
+            try {
+              const clipFiles = await window.primeDeskAPI.clipGetFiles();
+              if (clipFiles && clipFiles.length > 0) {
+                const manifest = await window.primeDeskAPI.fsCollectItems(clipFiles);
+                if (manifest && manifest.rootItems && manifest.rootItems.length > 0) {
+                  this.enqueueOutgoingTransfer({
+                    targetDir: null,
+                    purpose: 'clipboard-paste',
+                    manifest
+                  });
+                  return;
+                }
+              }
+            } catch (err) {
+              console.warn('[Clipboard] File drop inspect error:', err);
+            }
+          }
+
           if (this.permClipboard && window.primeDeskAPI) {
             try {
               const text = await window.primeDeskAPI.readClipboard();
@@ -1775,14 +1913,14 @@ class PrimeDeskApp {
           return;
         }
 
-        // Intercept Ctrl+C (Copy from remote host to local clipboard)
-        if (e.ctrlKey && (e.key === 'c' || e.key === 'C' || e.keyCode === 67)) {
+        // Intercept Ctrl+C (Copy text OR files from remote host)
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C' || e.keyCode === 67)) {
           this.sendInputCommand('COPY');
           setTimeout(() => {
             if (this.clipboardChannel && this.clipboardChannel.readyState === 'open') {
               this.clipboardChannel.send(JSON.stringify({ type: 'request-clip' }));
             }
-          }, 180);
+          }, 220);
           return;
         }
 
@@ -1792,8 +1930,9 @@ class PrimeDeskApp {
     });
 
     window.addEventListener('keyup', (e) => {
-      if (this.dom.remoteViewport.style.display !== 'none' && document.activeElement !== this.dom.chatInput) {
-        if (e.ctrlKey && (e.key === 'v' || e.key === 'V' || e.key === 'c' || e.key === 'C')) {
+      const fmOpen = this.dom.fileManagerModal && this.dom.fileManagerModal.style.display !== 'none';
+      if (this.dom.remoteViewport.style.display !== 'none' && !fmOpen && document.activeElement !== this.dom.chatInput) {
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V' || e.key === 'c' || e.key === 'C')) {
           return;
         }
         this.sendInputCommand(`KU ${e.keyCode}`);
@@ -1817,7 +1956,12 @@ class PrimeDeskApp {
     const bubble = document.createElement('div');
     bubble.className = `chat-bubble ${type}`;
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    bubble.innerHTML = `${text}<span class="chat-time">${timeStr}</span>`;
+    const textNode = document.createTextNode(text);
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'chat-time';
+    timeSpan.textContent = timeStr;
+    bubble.appendChild(textNode);
+    bubble.appendChild(timeSpan);
     this.dom.chatMessages.appendChild(bubble);
     this.dom.chatMessages.scrollTop = this.dom.chatMessages.scrollHeight;
   }
@@ -1826,83 +1970,784 @@ class PrimeDeskApp {
     const text = this.unreadChatCount > 0 ? this.unreadChatCount : '';
     const display = this.unreadChatCount > 0 ? 'inline-block' : 'none';
 
-    this.dom.chatBadge.textContent = text;
-    this.dom.chatBadge.style.display = display;
-    this.dom.pillChatBadge.textContent = text;
-    this.dom.pillChatBadge.style.display = display;
-  }
-
-  async sendFile(file) {
-    if (!this.fileChannel || this.fileChannel.readyState !== 'open') {
-      await this.showCustomAlert('Channel Closed', 'File channel is not open. Connect to a remote device first.', 'warning');
-      return;
+    if (this.dom.chatBadge) {
+      this.dom.chatBadge.textContent = text;
+      this.dom.chatBadge.style.display = display;
     }
-
-    this.showTransferToast(`Sending: ${file.name}`, 0);
-
-    this.fileChannel.send(JSON.stringify({
-      type: 'file-start',
-      name: file.name,
-      size: file.size
-    }));
-
-    const buffer = await file.arrayBuffer();
-    let offset = 0;
-
-    const sendChunk = () => {
-      while (offset < buffer.byteLength) {
-        if (this.fileChannel.bufferedAmount > 8 * 1024 * 1024) {
-          setTimeout(sendChunk, 50);
-          return;
-        }
-
-        const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-        this.fileChannel.send(chunk);
-        offset += chunk.byteLength;
-
-        const pct = Math.round((offset / buffer.byteLength) * 100);
-        this.updateTransferProgress(pct);
-      }
-
-      this.showTransferToast(`Sent: ${file.name}`, 100);
-      setTimeout(() => this.hideTransferToast(), 3000);
-    };
-
-    sendChunk();
+    if (this.dom.pillChatBadge) {
+      this.dom.pillChatBadge.textContent = text;
+      this.dom.pillChatBadge.style.display = display;
+    }
   }
 
-  showTransferToast(name, pct) {
-    if (this.dom.toastFileName) this.dom.toastFileName.textContent = name;
-    if (this.dom.toastPercent) this.dom.toastPercent.textContent = `${pct}%`;
-    if (this.dom.toastProgressBar) this.dom.toastProgressBar.style.width = `${pct}%`;
+  // ==================== STREAMING DISK FILE TRANSFER ENGINE ====================
+
+  formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+    const val = bytes / Math.pow(1024, i);
+    return `${val >= 10 || i === 0 ? Math.round(val) : val.toFixed(1)} ${units[i]}`;
+  }
+
+  notifyPillStatus(statusText) {
+    if (this.role === 'host' && window.primeDeskAPI && window.primeDeskAPI.pillNotifyIncoming) {
+      window.primeDeskAPI.pillNotifyIncoming({ statusText });
+    }
+  }
+
+  updateTransferUI(label, pct, showCancel = false) {
+    const clamped = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    if (this.dom.toastFileName) this.dom.toastFileName.textContent = label;
+    if (this.dom.toastPercent) this.dom.toastPercent.textContent = `${clamped}%`;
+    if (this.dom.toastProgressBar) this.dom.toastProgressBar.style.width = `${clamped}%`;
     if (this.dom.transferToast) this.dom.transferToast.style.display = 'block';
 
-    const pillDesc = document.querySelector('.pill-desc');
-    if (pillDesc && this.role === 'host') {
-      pillDesc.textContent = `${name} (${pct}%)`;
+    if (this.dom.fmTransferStatus) this.dom.fmTransferStatus.textContent = label;
+    if (this.dom.fmTransferPercent) this.dom.fmTransferPercent.textContent = `${clamped}%`;
+    if (this.dom.fmTransferProgressBar) this.dom.fmTransferProgressBar.style.width = `${clamped}%`;
+    if (this.dom.fmCancelTransferBtn) {
+      this.dom.fmCancelTransferBtn.style.display = showCancel ? 'inline-block' : 'none';
     }
-  }
-
-  updateTransferProgress(pct) {
-    if (this.dom.toastPercent) this.dom.toastPercent.textContent = `${pct}%`;
-    if (this.dom.toastProgressBar) this.dom.toastProgressBar.style.width = `${pct}%`;
-
-    const pillDesc = document.querySelector('.pill-desc');
-    if (pillDesc && this.role === 'host') {
-      pillDesc.textContent = `Transferring... ${pct}%`;
-    }
+    this.notifyPillStatus(`${label} (${clamped}%)`);
   }
 
   hideTransferToast() {
     if (this.dom.transferToast) this.dom.transferToast.style.display = 'none';
+    if (this.dom.fmCancelTransferBtn) this.dom.fmCancelTransferBtn.style.display = 'none';
+    this.notifyPillStatus('Remote Control Active');
+  }
 
-    const pillDesc = document.querySelector('.pill-desc');
-    if (pillDesc && this.role === 'host') {
-      pillDesc.textContent = 'Remote Support Connected';
+  async cleanupFileTransfers() {
+    this.transferQueue = [];
+    if (this.activeSendTransfer) {
+      this.activeSendTransfer.aborted = true;
+      if (this.activeSendTransfer.readId && window.primeDeskAPI) {
+        try { await window.primeDeskAPI.fsCloseRead(this.activeSendTransfer.readId); } catch (e) {}
+      }
+      this.activeSendTransfer = null;
+    }
+    this.isSendingTransfer = false;
+
+    if (this.activeReceiveTransfer) {
+      if (this.activeReceiveTransfer.writeId && window.primeDeskAPI) {
+        try { await window.primeDeskAPI.fsAbortWrite(this.activeReceiveTransfer.writeId); } catch (e) {}
+      }
+      this.activeReceiveTransfer = null;
+    }
+
+    if (this.pendingRemoteClipTimer) {
+      clearTimeout(this.pendingRemoteClipTimer);
+      this.pendingRemoteClipTimer = null;
+    }
+    this.pendingRemoteClipData = null;
+
+    for (const [, entry] of this.pendingFileOps.entries()) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error('Session closed'));
+    }
+    this.pendingFileOps.clear();
+  }
+
+  waitForFileBufferDrain(dc) {
+    return new Promise((resolve) => {
+      if (!dc || dc.readyState !== 'open' || dc.bufferedAmount <= 1024 * 1024) {
+        return resolve();
+      }
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        dc.removeEventListener('bufferedamountlow', done);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(done, 100);
+      dc.addEventListener('bufferedamountlow', done);
+    });
+  }
+
+  enqueueOutgoingTransfer(job) {
+    if (!this.fileChannel || this.fileChannel.readyState !== 'open') {
+      this.showCustomAlert('Channel Closed', 'File channel is not open. Wait for connection to stabilize.', 'warning');
+      return;
+    }
+    this.transferQueue.push(job);
+    if (!this.isSendingTransfer) {
+      this.processTransferQueue();
     }
   }
 
+  async processTransferQueue() {
+    if (this.isSendingTransfer) return;
+    this.isSendingTransfer = true;
+
+    while (this.transferQueue.length > 0) {
+      const job = this.transferQueue.shift();
+      await this.executeOutgoingTransfer(job);
+    }
+
+    this.isSendingTransfer = false;
+  }
+
+  async executeOutgoingTransfer({ targetDir, purpose, manifest }) {
+    const dc = this.fileChannel;
+    if (!dc || dc.readyState !== 'open' || !window.primeDeskAPI) return;
+
+    const transferId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const files = manifest.files || [];
+    const emptyDirs = manifest.emptyDirs || [];
+    const rootNames = (manifest.rootItems || []).map(r => r.name);
+    const totalSize = manifest.totalSize || 0;
+
+    const tx = { transferId, aborted: false, readId: null };
+    this.activeSendTransfer = tx;
+
+    const labelPrefix = purpose === 'clipboard-paste' ? 'Pasting' : 'Sending';
+    const summaryName = rootNames.length === 1 ? rootNames[0] : `${rootNames.length} items`;
+    this.updateTransferUI(`${labelPrefix}: ${summaryName}`, 0, true);
+
+    dc.send(JSON.stringify({
+      type: 'batch-start',
+      transferId,
+      purpose,
+      targetDir,
+      totalSize,
+      totalFiles: files.length,
+      rootNames,
+      emptyDirs
+    }));
+
+    let sentBytes = 0;
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        if (tx.aborted || dc.readyState !== 'open') break;
+        const f = files[i];
+
+        dc.send(JSON.stringify({
+          type: 'file-start',
+          transferId,
+          relPath: f.relPath,
+          name: f.relPath.split('/').pop(),
+          size: f.size
+        }));
+
+        if (f.size > 0) {
+          const opened = await window.primeDeskAPI.fsOpenRead(f.fullPath);
+          tx.readId = opened.readId;
+          let offset = 0;
+
+          while (offset < f.size && !tx.aborted && dc.readyState === 'open') {
+            if (dc.bufferedAmount > 1024 * 1024) {
+              await this.waitForFileBufferDrain(dc);
+              if (tx.aborted || dc.readyState !== 'open') break;
+            }
+            const toRead = Math.min(CHUNK_SIZE, f.size - offset);
+            const chunk = await window.primeDeskAPI.fsReadChunk(tx.readId, offset, toRead);
+            if (!chunk || chunk.byteLength === 0) break;
+
+            dc.send(chunk);
+            offset += chunk.byteLength;
+            sentBytes += chunk.byteLength;
+
+            const pct = totalSize > 0 ? Math.round((sentBytes / totalSize) * 100) : 100;
+            this.updateTransferUI(`${labelPrefix} (${i + 1}/${files.length}): ${f.relPath.split('/').pop()}`, pct, true);
+          }
+
+          await window.primeDeskAPI.fsCloseRead(tx.readId);
+          tx.readId = null;
+        }
+
+        if (tx.aborted || dc.readyState !== 'open') break;
+        dc.send(JSON.stringify({ type: 'file-end', transferId, relPath: f.relPath }));
+      }
+
+      if (tx.aborted) {
+        if (dc.readyState === 'open') {
+          dc.send(JSON.stringify({ type: 'batch-abort', transferId, reason: 'Cancelled by user' }));
+        }
+        this.updateTransferUI('Transfer cancelled', 0, false);
+      } else if (dc.readyState === 'open') {
+        dc.send(JSON.stringify({ type: 'batch-end', transferId, purpose }));
+        this.updateTransferUI(`Completed: ${summaryName}`, 100, false);
+        if (this.role === 'viewer' && purpose === 'manager' && this.dom.fileManagerModal.style.display === 'flex') {
+          await this.loadFmDir('remote', this.fmState.remote.path);
+        }
+      }
+    } catch (err) {
+      console.error('[File] Outgoing stream error:', err);
+      if (dc.readyState === 'open') {
+        dc.send(JSON.stringify({ type: 'batch-abort', transferId, reason: err.message }));
+      }
+      this.updateTransferUI(`Failed: ${err.message}`, 0, false);
+    } finally {
+      if (tx.readId && window.primeDeskAPI) {
+        try { await window.primeDeskAPI.fsCloseRead(tx.readId); } catch (e) {}
+      }
+      this.activeSendTransfer = null;
+      setTimeout(() => {
+        if (!this.activeSendTransfer && !this.activeReceiveTransfer) {
+          this.hideTransferToast();
+        }
+      }, 3000);
+    }
+  }
+
+  async cancelCurrentTransfer() {
+    if (this.activeSendTransfer) {
+      this.activeSendTransfer.aborted = true;
+      this.transferQueue = [];
+    }
+    if (this.activeReceiveTransfer && this.fileOpsChannel && this.fileOpsChannel.readyState === 'open') {
+      this.fileOpsChannel.send(JSON.stringify({
+        type: 'fs-pull-cancel',
+        transferId: this.activeReceiveTransfer.transferId
+      }));
+    }
+  }
+
+  async handleFileChannelControl(msg) {
+    if (!this.permFile) {
+      if (msg.type === 'batch-start') {
+        console.warn('[File] Transfer rejected: Allow File Transfer disabled in settings');
+        if (this.fileOpsChannel && this.fileOpsChannel.readyState === 'open') {
+          this.fileOpsChannel.send(JSON.stringify({
+            type: 'transfer-error',
+            message: 'File transfer blocked: Remote host disabled file transfer permission in Security settings.'
+          }));
+        }
+      }
+      return;
+    }
+
+    if (msg.type === 'batch-start') {
+      let baseDir = msg.targetDir;
+      if (msg.purpose === 'clipboard-paste' || msg.purpose === 'clipboard') {
+        baseDir = await window.primeDeskAPI.clipCreateStageDir();
+      } else if (!baseDir) {
+        baseDir = await window.primeDeskAPI.getDownloadsDir();
+      }
+
+      if (Array.isArray(msg.emptyDirs)) {
+        for (const rel of msg.emptyDirs) {
+          try {
+            await window.primeDeskAPI.fsCreateEmptyDir(baseDir, rel);
+          } catch (e) {}
+        }
+      }
+
+      this.activeReceiveTransfer = {
+        transferId: msg.transferId,
+        purpose: msg.purpose,
+        baseDir,
+        totalSize: msg.totalSize || 0,
+        totalFiles: msg.totalFiles || 0,
+        receivedTotal: 0,
+        rootNames: msg.rootNames || [],
+        writeId: null,
+        currentFileSize: 0,
+        currentFileReceived: 0,
+        filesDone: 0
+      };
+      const label = msg.rootNames && msg.rootNames.length === 1 ? msg.rootNames[0] : `${msg.totalFiles} files`;
+      this.updateTransferUI(`Receiving: ${label}`, 0, true);
+      return;
+    }
+
+    const rx = this.activeReceiveTransfer;
+    if (!rx || rx.transferId !== msg.transferId) return;
+
+    if (msg.type === 'file-start') {
+      const opened = await window.primeDeskAPI.fsBeginWrite(rx.baseDir, msg.relPath);
+      rx.writeId = opened.writeId;
+      rx.currentFileSize = msg.size || 0;
+      rx.currentFileReceived = 0;
+      const pct = rx.totalSize > 0 ? Math.round((rx.receivedTotal / rx.totalSize) * 100) : 100;
+      this.updateTransferUI(`Receiving (${rx.filesDone + 1}/${rx.totalFiles}): ${msg.name}`, pct, true);
+    } else if (msg.type === 'file-end') {
+      if (rx.writeId) {
+        await window.primeDeskAPI.fsEndWrite(rx.writeId);
+        rx.writeId = null;
+      }
+      rx.filesDone++;
+    } else if (msg.type === 'batch-abort') {
+      if (rx.writeId) {
+        await window.primeDeskAPI.fsAbortWrite(rx.writeId);
+        rx.writeId = null;
+      }
+      this.activeReceiveTransfer = null;
+      this.updateTransferUI(`Cancelled: ${msg.reason || 'Aborted'}`, 0, false);
+      setTimeout(() => this.hideTransferToast(), 3000);
+    } else if (msg.type === 'batch-end') {
+      if (rx.writeId) {
+        await window.primeDeskAPI.fsEndWrite(rx.writeId);
+        rx.writeId = null;
+      }
+      const completed = rx;
+      this.activeReceiveTransfer = null;
+
+      if (completed.purpose === 'clipboard-paste') {
+        const rootPaths = [];
+        for (const r of completed.rootNames) {
+          rootPaths.push(await window.primeDeskAPI.fsResolveSafeTarget(completed.baseDir, r));
+        }
+        await window.primeDeskAPI.clipSetFiles(rootPaths);
+        if (this.permControl) {
+          await window.primeDeskAPI.sendInput('PASTE');
+        }
+        this.updateTransferUI(`Pasted: ${completed.rootNames.join(', ')}`, 100, false);
+      } else if (completed.purpose === 'clipboard') {
+        const rootPaths = [];
+        for (const r of completed.rootNames) {
+          rootPaths.push(await window.primeDeskAPI.fsResolveSafeTarget(completed.baseDir, r));
+        }
+        await window.primeDeskAPI.clipSetFiles(rootPaths);
+        this.updateTransferUI('Copied files ready — Press Ctrl+V on your PC', 100, false);
+      } else {
+        this.updateTransferUI('Download complete', 100, false);
+        if (this.role === 'viewer' && this.dom.fileManagerModal.style.display === 'flex') {
+          await this.loadFmDir('local', this.fmState.local.path);
+        }
+      }
+      setTimeout(() => {
+        if (!this.activeSendTransfer && !this.activeReceiveTransfer) {
+          this.hideTransferToast();
+        }
+      }, 3500);
+    }
+  }
+
+  async handleFileChannelChunk(arrayBuffer) {
+    const rx = this.activeReceiveTransfer;
+    if (!rx || !rx.writeId) return;
+    await window.primeDeskAPI.fsWriteChunk(rx.writeId, new Uint8Array(arrayBuffer));
+    rx.currentFileReceived += arrayBuffer.byteLength;
+    rx.receivedTotal += arrayBuffer.byteLength;
+    const pct = rx.totalSize > 0 ? Math.round((rx.receivedTotal / rx.totalSize) * 100) : 100;
+    if (this.dom.toastPercent) this.dom.toastPercent.textContent = `${pct}%`;
+    if (this.dom.toastProgressBar) this.dom.toastProgressBar.style.width = `${pct}%`;
+    if (this.dom.fmTransferPercent) this.dom.fmTransferPercent.textContent = `${pct}%`;
+    if (this.dom.fmTransferProgressBar) this.dom.fmTransferProgressBar.style.width = `${pct}%`;
+  }
+
+  // ==================== FILE-OPS RPC & CLIPBOARD PULL ====================
+
+  callRemoteFs(action, payload = {}) {
+    return new Promise((resolve, reject) => {
+      if (!this.fileOpsChannel || this.fileOpsChannel.readyState !== 'open') {
+        return reject(new Error('File control channel is not connected'));
+      }
+      const reqId = this.nextFileOpId++;
+      const timer = setTimeout(() => {
+        this.pendingFileOps.delete(reqId);
+        reject(new Error('Remote file request timed out'));
+      }, 15000);
+      this.pendingFileOps.set(reqId, { resolve, reject, timer });
+      this.fileOpsChannel.send(JSON.stringify({ type: 'fs-req', reqId, action, payload }));
+    });
+  }
+
+  async handleFileOpsMessage(dc, msg) {
+    if (msg.type === 'fs-req') {
+      if (!this.permFile) {
+        dc.send(JSON.stringify({
+          type: 'fs-res',
+          reqId: msg.reqId,
+          ok: false,
+          error: 'Remote host disabled file transfers in Security Settings.'
+        }));
+        return;
+      }
+      try {
+        let data = null;
+        if (msg.action === 'list-roots') data = await window.primeDeskAPI.fsListRoots();
+        else if (msg.action === 'list-dir') data = await window.primeDeskAPI.fsListDir(msg.payload.path);
+        else if (msg.action === 'mkdir') data = await window.primeDeskAPI.fsMakeDir(msg.payload.path);
+        else if (msg.action === 'trash') data = await window.primeDeskAPI.fsTrash(msg.payload.paths);
+        dc.send(JSON.stringify({ type: 'fs-res', reqId: msg.reqId, ok: true, data }));
+      } catch (err) {
+        dc.send(JSON.stringify({ type: 'fs-res', reqId: msg.reqId, ok: false, error: err.message }));
+      }
+    } else if (msg.type === 'fs-res') {
+      const entry = this.pendingFileOps.get(msg.reqId);
+      if (entry) {
+        clearTimeout(entry.timer);
+        this.pendingFileOps.delete(msg.reqId);
+        if (msg.ok) entry.resolve(msg.data);
+        else entry.reject(new Error(msg.error || 'Remote error'));
+      }
+    } else if (msg.type === 'fs-pull-req') {
+      if (!this.permFile) {
+        dc.send(JSON.stringify({
+          type: 'transfer-error',
+          message: 'Remote host disabled file transfer permission.'
+        }));
+        return;
+      }
+      const manifest = await window.primeDeskAPI.fsCollectItems(msg.sourcePaths);
+      if (manifest && manifest.rootItems && manifest.rootItems.length > 0) {
+        this.enqueueOutgoingTransfer({
+          targetDir: msg.targetDir || null,
+          purpose: msg.purpose || 'manager',
+          manifest
+        });
+      }
+    } else if (msg.type === 'fs-pull-cancel') {
+      if (this.activeSendTransfer && (!msg.transferId || this.activeSendTransfer.transferId === msg.transferId)) {
+        this.activeSendTransfer.aborted = true;
+        this.transferQueue = [];
+      }
+    } else if (msg.type === 'transfer-error') {
+      this.hideTransferToast();
+      await this.showCustomAlert('File Transfer Blocked', msg.message || 'Transfer rejected.', 'warning');
+    }
+  }
+
+  handleRemoteClipboardFilesReady(data) {
+    if (this.pendingRemoteClipTimer) {
+      clearTimeout(this.pendingRemoteClipTimer);
+      this.pendingRemoteClipTimer = null;
+    }
+    if (!data || !data.paths || data.paths.length === 0) return;
+
+    // Wait 900ms so Ctrl+C -> Ctrl+V purely inside the remote screen does not download unnecessarily
+    this.pendingRemoteClipTimer = setTimeout(() => {
+      this.pendingRemoteClipTimer = null;
+      if ((data.totalSize || 0) <= FILE_CLIP_AUTO_MAX_BYTES) {
+        this.pullRemoteClipboardFiles(data);
+      } else {
+        this.pendingRemoteClipData = data;
+        if (this.dom.remoteClipBanner && this.dom.remoteClipBannerText) {
+          const count = (data.rootItems || data.paths).length;
+          const label = count === 1 && data.rootItems && data.rootItems[0]
+            ? data.rootItems[0].name
+            : `${count} items`;
+          this.dom.remoteClipBannerText.textContent = `Remote copied ${label} (${this.formatBytes(data.totalSize)})`;
+          this.dom.remoteClipBanner.style.display = 'flex';
+        }
+      }
+    }, 900);
+  }
+
+  pullRemoteClipboardFiles(data) {
+    if (!this.fileOpsChannel || this.fileOpsChannel.readyState !== 'open') return;
+    this.fileOpsChannel.send(JSON.stringify({
+      type: 'fs-pull-req',
+      sourcePaths: data.paths,
+      targetDir: null,
+      purpose: 'clipboard'
+    }));
+  }
+
+  // ==================== DUAL-PANE SUPPORT-GIVER FILE MANAGER ====================
+
+  fmDom(side) {
+    return {
+      driveSelect: document.getElementById(`${side}DriveSelect`),
+      upBtn: document.getElementById(`${side}UpBtn`),
+      pathInput: document.getElementById(`${side}PathInput`),
+      newFolderBtn: document.getElementById(`${side}NewFolderBtn`),
+      refreshBtn: document.getElementById(`${side}RefreshBtn`),
+      deleteBtn: document.getElementById(`${side}DeleteBtn`),
+      newFolderRow: document.getElementById(`${side}NewFolderRow`),
+      newFolderInput: document.getElementById(`${side}NewFolderInput`),
+      createFolderConfirmBtn: document.getElementById(`${side}CreateFolderConfirmBtn`),
+      createFolderCancelBtn: document.getElementById(`${side}CreateFolderCancelBtn`),
+      selectAll: document.getElementById(`${side}SelectAll`),
+      fileList: document.getElementById(`${side}FileList`),
+      selCount: document.getElementById(`${side}SelCount`)
+    };
+  }
+
+  fmBackend(side) {
+    if (side === 'local') {
+      return {
+        listRoots: () => window.primeDeskAPI.fsListRoots(),
+        listDir: (p) => window.primeDeskAPI.fsListDir(p),
+        mkdir: (p) => window.primeDeskAPI.fsMakeDir(p),
+        trash: (paths) => window.primeDeskAPI.fsTrash(paths)
+      };
+    }
+    return {
+      listRoots: () => this.callRemoteFs('list-roots'),
+      listDir: (p) => this.callRemoteFs('list-dir', { path: p }),
+      mkdir: (p) => this.callRemoteFs('mkdir', { path: p }),
+      trash: (paths) => this.callRemoteFs('trash', { paths })
+    };
+  }
+
+  initFileManagerEvents() {
+    if (this.dom.closeFileManagerBtn) {
+      this.dom.closeFileManagerBtn.addEventListener('click', () => {
+        this.dom.fileManagerModal.style.display = 'none';
+      });
+    }
+    if (this.dom.fmCancelTransferBtn) {
+      this.dom.fmCancelTransferBtn.addEventListener('click', () => this.cancelCurrentTransfer());
+    }
+    if (this.dom.giveFilesBtn) {
+      this.dom.giveFilesBtn.addEventListener('click', () => this.handleGiveFiles());
+    }
+    if (this.dom.takeFilesBtn) {
+      this.dom.takeFilesBtn.addEventListener('click', () => this.handleTakeFiles());
+    }
+
+    document.querySelectorAll('[data-fm-shortcut]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const [side, key] = btn.getAttribute('data-fm-shortcut').split(':');
+        const roots = this.fmState[side] && this.fmState[side].roots;
+        if (roots && roots.specialDirs && roots.specialDirs[key]) {
+          this.loadFmDir(side, roots.specialDirs[key]);
+        }
+      });
+    });
+
+    for (const side of ['local', 'remote']) {
+      const els = this.fmDom(side);
+      if (!els.driveSelect) continue;
+
+      els.driveSelect.addEventListener('change', (e) => this.loadFmDir(side, e.target.value));
+      els.upBtn.addEventListener('click', () => {
+        if (this.fmState[side].parent) {
+          this.loadFmDir(side, this.fmState[side].parent);
+        }
+      });
+      els.refreshBtn.addEventListener('click', () => this.loadFmDir(side, this.fmState[side].path));
+
+      els.newFolderBtn.addEventListener('click', () => {
+        els.newFolderRow.style.display = 'flex';
+        els.newFolderInput.value = '';
+        els.newFolderInput.focus();
+      });
+      els.createFolderCancelBtn.addEventListener('click', () => {
+        els.newFolderRow.style.display = 'none';
+      });
+      const submitFolder = async () => {
+        const folderName = els.newFolderInput.value.trim();
+        if (!folderName || !this.fmState[side].path) return;
+        const sep = this.fmState[side].path.endsWith('\\') || this.fmState[side].path.endsWith('/') ? '' : '\\';
+        const res = await this.fmBackend(side).mkdir(`${this.fmState[side].path}${sep}${folderName}`);
+        els.newFolderRow.style.display = 'none';
+        if (res && res.ok) {
+          await this.loadFmDir(side, this.fmState[side].path);
+        } else {
+          await this.showCustomAlert('Folder Error', (res && res.error) || 'Could not create folder.', 'error');
+        }
+      };
+      els.createFolderConfirmBtn.addEventListener('click', submitFolder);
+      els.newFolderInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submitFolder();
+        if (e.key === 'Escape') els.newFolderRow.style.display = 'none';
+      });
+
+      els.deleteBtn.addEventListener('click', async () => {
+        const selected = [...this.fmState[side].selected];
+        if (selected.length === 0) return;
+        const ok = await this.showCustomConfirm(
+          'Move to Recycle Bin',
+          `Move ${selected.length} selected item(s) on ${side === 'local' ? 'Local PC' : 'Remote PC'} to Recycle Bin?`,
+          'warning'
+        );
+        if (!ok) return;
+        const res = await this.fmBackend(side).trash(selected);
+        if (res && res.ok) {
+          await this.loadFmDir(side, this.fmState[side].path);
+        } else {
+          await this.showCustomAlert('Delete Error', (res && res.error) || 'Could not remove selected items.', 'error');
+        }
+      });
+
+      els.selectAll.addEventListener('change', (e) => {
+        const state = this.fmState[side];
+        state.selected.clear();
+        if (e.target.checked) {
+          state.entries.forEach(entry => state.selected.add(entry.path));
+        }
+        this.renderFmList(side);
+      });
+    }
+  }
+
+  async openFileManager() {
+    if (!this.fileChannel || this.fileChannel.readyState !== 'open' || !this.fileOpsChannel || this.fileOpsChannel.readyState !== 'open') {
+      await this.showCustomAlert('Not Connected', 'File manager requires an active remote session.', 'warning');
+      return;
+    }
+    this.dom.fileManagerModal.style.display = 'flex';
+    if (this.dom.fmTransferStatus && !this.activeSendTransfer && !this.activeReceiveTransfer) {
+      this.dom.fmTransferStatus.textContent = 'Ready — Select files/folders to Give or Take';
+      this.dom.fmTransferPercent.textContent = '0%';
+      this.dom.fmTransferProgressBar.style.width = '0%';
+    }
+
+    await Promise.all([this.initFmPane('local'), this.initFmPane('remote')]);
+  }
+
+  async initFmPane(side) {
+    try {
+      const roots = await this.fmBackend(side).listRoots();
+      this.fmState[side].roots = roots;
+      const els = this.fmDom(side);
+      els.driveSelect.innerHTML = '';
+      (roots.drives || []).forEach((drv) => {
+        const opt = document.createElement('option');
+        opt.value = drv;
+        opt.textContent = drv;
+        els.driveSelect.appendChild(opt);
+      });
+      const startPath = this.fmState[side].path || (roots.specialDirs && roots.specialDirs.desktop) || (roots.drives && roots.drives[0]);
+      await this.loadFmDir(side, startPath);
+    } catch (err) {
+      await this.showCustomAlert(
+        `${side === 'local' ? 'Local' : 'Remote'} File Browser Error`,
+        err.message,
+        'warning'
+      );
+    }
+  }
+
+  async loadFmDir(side, dirPath) {
+    try {
+      const res = await this.fmBackend(side).listDir(dirPath);
+      if (!res || !res.ok) {
+        await this.showCustomAlert('Folder Access Error', (res && res.error) || 'Unable to open folder.', 'warning');
+        return;
+      }
+      const state = this.fmState[side];
+      state.path = res.path;
+      state.parent = res.parent;
+      state.entries = res.entries || [];
+      state.selected.clear();
+
+      const els = this.fmDom(side);
+      els.pathInput.value = res.path;
+      els.selectAll.checked = false;
+      const driveRoot = res.path.slice(0, 3).toUpperCase();
+      for (const opt of els.driveSelect.options) {
+        if (opt.value.toUpperCase() === driveRoot) {
+          els.driveSelect.value = opt.value;
+          break;
+        }
+      }
+      this.renderFmList(side);
+    } catch (err) {
+      await this.showCustomAlert('Directory Error', err.message, 'warning');
+    }
+  }
+
+  renderFmList(side) {
+    const state = this.fmState[side];
+    const els = this.fmDom(side);
+    els.fileList.innerHTML = '';
+    els.selCount.textContent = `${state.selected.size} selected`;
+
+    if (state.entries.length === 0) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 3;
+      td.style.color = '#64748b';
+      td.style.textAlign = 'center';
+      td.style.padding = '24px';
+      td.textContent = 'Folder is empty';
+      tr.appendChild(td);
+      els.fileList.appendChild(tr);
+      return;
+    }
+
+    for (const entry of state.entries) {
+      const tr = document.createElement('tr');
+      const isSelected = state.selected.has(entry.path);
+      tr.className = `fm-row${isSelected ? ' selected' : ''}`;
+
+      const tdCheck = document.createElement('td');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = isSelected;
+      cb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (cb.checked) state.selected.add(entry.path);
+        else state.selected.delete(entry.path);
+        tr.classList.toggle('selected', cb.checked);
+        els.selCount.textContent = `${state.selected.size} selected`;
+      });
+      tdCheck.appendChild(cb);
+
+      const tdName = document.createElement('td');
+      const nameWrap = document.createElement('div');
+      nameWrap.className = 'fm-name-cell';
+      const iconSpan = document.createElement('span');
+      iconSpan.textContent = entry.isDir ? '📁' : '📄';
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = entry.name;
+      nameWrap.appendChild(iconSpan);
+      nameWrap.appendChild(labelSpan);
+      tdName.appendChild(nameWrap);
+
+      const tdSize = document.createElement('td');
+      tdSize.textContent = entry.isDir ? 'Folder' : this.formatBytes(entry.size);
+
+      tr.addEventListener('click', () => {
+        const next = !state.selected.has(entry.path);
+        if (next) state.selected.add(entry.path);
+        else state.selected.delete(entry.path);
+        cb.checked = next;
+        tr.classList.toggle('selected', next);
+        els.selCount.textContent = `${state.selected.size} selected`;
+      });
+
+      tr.addEventListener('dblclick', () => {
+        if (entry.isDir) {
+          this.loadFmDir(side, entry.path);
+        }
+      });
+
+      tr.appendChild(tdCheck);
+      tr.appendChild(tdName);
+      tr.appendChild(tdSize);
+      els.fileList.appendChild(tr);
+    }
+  }
+
+  async handleGiveFiles() {
+    const selected = [...this.fmState.local.selected];
+    const targetDir = this.fmState.remote.path;
+    if (selected.length === 0) {
+      await this.showCustomAlert('Select Files', 'Select one or more local files or folders to Give (send to Remote PC).', 'info');
+      return;
+    }
+    if (!targetDir) {
+      await this.showCustomAlert('Remote Folder Missing', 'Open a destination folder on the Remote PC pane first.', 'warning');
+      return;
+    }
+    const manifest = await window.primeDeskAPI.fsCollectItems(selected);
+    if (!manifest || !manifest.rootItems || manifest.rootItems.length === 0) {
+      await this.showCustomAlert('Nothing to Send', 'Selected items could not be read.', 'warning');
+      return;
+    }
+    this.enqueueOutgoingTransfer({ targetDir, purpose: 'manager', manifest });
+  }
+
+  async handleTakeFiles() {
+    const selected = [...this.fmState.remote.selected];
+    const targetDir = this.fmState.local.path || await window.primeDeskAPI.getDownloadsDir();
+    if (selected.length === 0) {
+      await this.showCustomAlert('Select Files', 'Select one or more remote files or folders to Take (download to your PC).', 'info');
+      return;
+    }
+    this.fileOpsChannel.send(JSON.stringify({
+      type: 'fs-pull-req',
+      sourcePaths: selected,
+      targetDir,
+      purpose: 'manager'
+    }));
+  }
+
   endSession() {
+    this.hideConnectingOverlay();
+    this.cleanupFileTransfers();
+    if (this.dom.fileManagerModal) this.dom.fileManagerModal.style.display = 'none';
+    if (this.dom.remoteClipBanner) this.dom.remoteClipBanner.style.display = 'none';
     this.stopSessionRecording();
     this.appendAuditLog('session-ended-viewer');
 
@@ -1919,6 +2764,8 @@ class PrimeDeskApp {
     if (this.role === 'host') {
       this.stopHosting();
     } else {
+      this.role = null;
+      this.pendingConnectCode = null;
       if (this.peerConnection) {
         this.peerConnection.close();
         this.peerConnection = null;

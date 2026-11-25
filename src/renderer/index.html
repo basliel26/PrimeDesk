@@ -249,10 +249,6 @@
         </div>
       </div>
       <div class="pill-actions">
-        <button class="pill-btn" id="pillSendFileBtn" title="Send File to Technician">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-          File
-        </button>
         <button class="pill-btn" id="pillChatBtn" title="Support Chat">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
           <span id="pillChatBadge" class="chat-badge" style="display: none;">0</span>
@@ -300,9 +296,9 @@
             <span id="fitBtnText">Fit</span>
           </button>
 
-          <button class="tool-btn" id="transferFileBtn" title="Send File to Remote Terminal">
+          <button class="tool-btn" id="fileManagerBtn" title="Open File Manager (Give & Take Files)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-            Send File
+            Files
           </button>
 
           <button class="tool-btn" id="toggleChatBtn" title="Support Chat">
@@ -324,6 +320,11 @@
       <div class="viewport-content">
         <div class="video-wrapper" id="videoWrapper">
           <video id="remoteVideo" autoplay playsinline></video>
+          <div class="remote-clip-banner" id="remoteClipBanner" style="display: none;">
+            <span id="remoteClipBannerText">Remote copied files (120 MB)</span>
+            <button class="btn btn-primary btn-xs" id="pullRemoteClipBtn">Ready for Ctrl+V</button>
+            <button class="btn btn-secondary btn-xs" id="dismissRemoteClipBtn">Dismiss</button>
+          </div>
         </div>
 
         <div class="chat-drawer" id="chatDrawer" style="display: none;">
@@ -787,7 +788,7 @@
                 </div>
                 <div class="about-details">
                   <h4>PrimeDesk Enterprise Remote Support Suite</h4>
-                  <p class="version-tag">Version 1.0.0 (Release Build) • Production Grade</p>
+                  <p class="version-tag">Version 1.1.0 (Release Build) • Production Grade</p>
                   <p class="arch-tag">x64 Native Architecture • Windows 10/11 / Windows Server</p>
                 </div>
               </div>
@@ -826,6 +827,130 @@
         <div class="modal-footer settings-dialog-footer">
           <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
           <button class="btn btn-primary" id="saveSettingsBtn">Save & Apply Preferences</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pending Connection Loading Overlay -->
+    <div class="modal-backdrop" id="connectingOverlay" style="display: none;">
+      <div class="connecting-overlay-card">
+        <div class="connect-spinner-ring"></div>
+        <span class="connecting-code-pill" id="connectingCodeLabel">000 000</span>
+        <h3 id="connectingTitle">Connecting to Remote PC...</h3>
+        <p id="connectingSubtitle">Sending connection request. Waiting for the remote user to accept...</p>
+        <button class="btn btn-secondary" id="cancelConnectBtn">Cancel Connection</button>
+      </div>
+    </div>
+
+    <!-- Dual-Pane Support-Giver File Manager Modal -->
+    <div class="modal-backdrop" id="fileManagerModal" style="display: none;">
+      <div class="file-manager-modal">
+        <div class="modal-header">
+          <h3>File Transfer Manager (Local ↔ Remote)</h3>
+          <button class="close-btn" id="closeFileManagerBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+
+        <div class="fm-panes">
+          <!-- Left Pane: Local PC (Support Giver) -->
+          <div class="fm-pane">
+            <div class="fm-pane-header">
+              <div class="fm-pane-title-row">
+                <span class="fm-pane-title">Local PC (Support Giver)</span>
+                <div class="fm-shortcuts">
+                  <button class="fm-chip-btn" data-fm-shortcut="local:desktop">Desktop</button>
+                  <button class="fm-chip-btn" data-fm-shortcut="local:downloads">Downloads</button>
+                  <button class="fm-chip-btn" data-fm-shortcut="local:documents">Documents</button>
+                </div>
+              </div>
+              <div class="fm-nav-row">
+                <select class="fm-drive-select" id="localDriveSelect"></select>
+                <button class="fm-icon-btn" id="localUpBtn" title="Up Folder">..</button>
+                <input type="text" class="fm-path-input" id="localPathInput" readonly>
+                <button class="fm-icon-btn" id="localNewFolderBtn" title="New Folder">+</button>
+                <button class="fm-icon-btn" id="localRefreshBtn" title="Refresh">↻</button>
+                <button class="fm-icon-btn danger" id="localDeleteBtn" title="Move Selected to Recycle Bin">🗑</button>
+              </div>
+            </div>
+            <div class="fm-newfolder-row" id="localNewFolderRow" style="display: none;">
+              <input type="text" id="localNewFolderInput" placeholder="New folder name...">
+              <button class="btn btn-primary btn-xs" id="localCreateFolderConfirmBtn">Create</button>
+              <button class="btn btn-secondary btn-xs" id="localCreateFolderCancelBtn">Cancel</button>
+            </div>
+            <div class="fm-list-wrap">
+              <table class="fm-table">
+                <thead>
+                  <tr>
+                    <th style="width: 28px;"><input type="checkbox" id="localSelectAll"></th>
+                    <th>Name</th>
+                    <th style="width: 85px;">Size</th>
+                  </tr>
+                </thead>
+                <tbody id="localFileList"></tbody>
+              </table>
+            </div>
+            <div class="fm-pane-footer">
+              <span class="fm-sel-count" id="localSelCount">0 selected</span>
+              <button class="btn btn-primary btn-xs" id="giveFilesBtn">Give (Send →)</button>
+            </div>
+          </div>
+
+          <!-- Right Pane: Remote PC (Client) -->
+          <div class="fm-pane">
+            <div class="fm-pane-header">
+              <div class="fm-pane-title-row">
+                <span class="fm-pane-title">Remote PC (Client)</span>
+                <div class="fm-shortcuts">
+                  <button class="fm-chip-btn" data-fm-shortcut="remote:desktop">Desktop</button>
+                  <button class="fm-chip-btn" data-fm-shortcut="remote:downloads">Downloads</button>
+                  <button class="fm-chip-btn" data-fm-shortcut="remote:documents">Documents</button>
+                </div>
+              </div>
+              <div class="fm-nav-row">
+                <select class="fm-drive-select" id="remoteDriveSelect"></select>
+                <button class="fm-icon-btn" id="remoteUpBtn" title="Up Folder">..</button>
+                <input type="text" class="fm-path-input" id="remotePathInput" readonly>
+                <button class="fm-icon-btn" id="remoteNewFolderBtn" title="New Folder">+</button>
+                <button class="fm-icon-btn" id="remoteRefreshBtn" title="Refresh">↻</button>
+                <button class="fm-icon-btn danger" id="remoteDeleteBtn" title="Move Selected to Recycle Bin">🗑</button>
+              </div>
+            </div>
+            <div class="fm-newfolder-row" id="remoteNewFolderRow" style="display: none;">
+              <input type="text" id="remoteNewFolderInput" placeholder="New folder name...">
+              <button class="btn btn-primary btn-xs" id="remoteCreateFolderConfirmBtn">Create</button>
+              <button class="btn btn-secondary btn-xs" id="remoteCreateFolderCancelBtn">Cancel</button>
+            </div>
+            <div class="fm-list-wrap">
+              <table class="fm-table">
+                <thead>
+                  <tr>
+                    <th style="width: 28px;"><input type="checkbox" id="remoteSelectAll"></th>
+                    <th>Name</th>
+                    <th style="width: 85px;">Size</th>
+                  </tr>
+                </thead>
+                <tbody id="remoteFileList"></tbody>
+              </table>
+            </div>
+            <div class="fm-pane-footer">
+              <span class="fm-sel-count" id="remoteSelCount">0 selected</span>
+              <button class="btn btn-primary btn-xs" id="takeFilesBtn">← Take (Download)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="fm-transfer-bar">
+          <div class="fm-progress-wrap">
+            <div class="fm-progress-meta">
+              <span id="fmTransferStatus">Ready — Select files/folders to transfer</span>
+              <span id="fmTransferPercent">0%</span>
+            </div>
+            <div class="toast-progress-track">
+              <div class="toast-progress-bar" id="fmTransferProgressBar" style="width: 0%;"></div>
+            </div>
+          </div>
+          <button class="btn btn-danger btn-xs" id="fmCancelTransferBtn" style="display: none;">Cancel Transfer</button>
         </div>
       </div>
     </div>
