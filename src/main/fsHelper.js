@@ -96,18 +96,50 @@ function createClipboardStageDir() {
   return stageDir;
 }
 
+function raceTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+  ]);
+}
+
+function getWindowsMountedDrives() {
+  return new Promise((resolve) => {
+    execFile('fsutil', ['fsinfo', 'drives'], { windowsHide: true, encoding: 'utf8', timeout: 1500 }, async (err, stdout) => {
+      if (err || !stdout) {
+        return resolve(null);
+      }
+      const matches = stdout.match(/[A-Z]:\\/gi) || [];
+      const unique = [...new Set(matches.map(d => d.toUpperCase()))];
+      const checks = await Promise.all(unique.map(async (drivePath) => {
+        const isNet = await new Promise((resType) => {
+          execFile('fsutil', ['fsinfo', 'drivetype', drivePath], { windowsHide: true, encoding: 'utf8', timeout: 700 }, (e2, out2) => {
+            resType(Boolean(!e2 && out2 && /network|remote/i.test(out2)));
+          });
+        });
+        try {
+          // Offline corporate mapped drives can hang SMB for 30s+; skip fast if unresponsive
+          await raceTimeout(fs.promises.access(drivePath), isNet ? 500 : 1200);
+          return drivePath;
+        } catch (e) {
+          return null;
+        }
+      }));
+      resolve(checks.filter(Boolean).sort());
+    });
+  });
+}
+
 async function listRoots() {
-  const drives = [];
+  let drives = [];
   if (process.platform === 'win32') {
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-    await Promise.all(letters.map(async (letter) => {
-      const drivePath = `${letter}:\\`;
-      try {
-        await fs.promises.access(drivePath);
-        drives.push(drivePath);
-      } catch (e) {}
-    }));
-    drives.sort();
+    const fastDrives = await getWindowsMountedDrives();
+    if (fastDrives && fastDrives.length > 0) {
+      drives = fastDrives;
+    } else {
+      const homeRoot = path.parse(app.getPath('home')).root || 'C:\\';
+      drives = [homeRoot];
+    }
   } else {
     drives.push('/');
   }
@@ -126,22 +158,36 @@ async function listRoots() {
 async function listDir(dirPath) {
   try {
     const target = path.resolve(dirPath || app.getPath('desktop'));
-    const rawNames = await fs.promises.readdir(target);
+    const dirents = await fs.promises.readdir(target, { withFileTypes: true });
     const entries = [];
+    const batchSize = 32;
 
-    for (const name of rawNames) {
-      const fullPath = path.join(target, name);
-      try {
-        const stat = await fs.promises.stat(fullPath);
-        entries.push({
-          name,
-          path: fullPath,
-          isDir: stat.isDirectory(),
-          size: stat.isDirectory() ? 0 : stat.size,
-          modified: stat.mtimeMs
-        });
-      } catch (e) {
-        // Skip locked OS entries (e.g. System Volume Information / pagefile.sys)
+    for (let i = 0; i < dirents.length; i += batchSize) {
+      const slice = dirents.slice(i, i + batchSize);
+      const mapped = await Promise.all(slice.map(async (dirent) => {
+        const name = dirent.name;
+        const fullPath = path.join(target, name);
+        try {
+          if (dirent.isDirectory()) {
+            return { name, path: fullPath, isDir: true, size: 0, modified: 0 };
+          }
+          if (dirent.isSymbolicLink()) {
+            return null;
+          }
+          const stat = await fs.promises.lstat(fullPath);
+          return {
+            name,
+            path: fullPath,
+            isDir: stat.isDirectory(),
+            size: stat.isDirectory() ? 0 : stat.size,
+            modified: stat.mtimeMs
+          };
+        } catch (e) {
+          return null;
+        }
+      }));
+      for (const item of mapped) {
+        if (item) entries.push(item);
       }
     }
 
@@ -223,7 +269,8 @@ async function collectTransferItems(inputPaths) {
     if (!rawPath || !fs.existsSync(rawPath)) continue;
     try {
       const resolved = path.resolve(rawPath);
-      const stat = await fs.promises.stat(resolved);
+      const stat = await fs.promises.lstat(resolved);
+      if (stat.isSymbolicLink()) continue;
       const baseName = path.basename(resolved);
       const itemBytes = await walkItem(resolved, baseName, files, emptyDirs);
       totalSize += itemBytes;

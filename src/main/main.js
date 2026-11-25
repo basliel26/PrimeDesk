@@ -24,7 +24,7 @@ function createWindow() {
     height: normalBounds.height,
     minWidth: 360,
     minHeight: 74,
-    maximizable: false,
+    maximizable: true,
     icon: path.join(__dirname, '..', '..', 'assets', 'primedesk.ico'),
     backgroundColor: '#090e17',
     frame: true,
@@ -189,7 +189,7 @@ ipcMain.handle('restore-normal-mode', () => {
   closePillWindow();
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   mainWindow.setAlwaysOnTop(false);
-  mainWindow.setMaximizable(false);
+  mainWindow.setMaximizable(true);
   mainWindow.setMinimizable(true);
   mainWindow.setResizable(true);
   mainWindow.setBounds({

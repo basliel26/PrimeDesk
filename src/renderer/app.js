@@ -13,8 +13,8 @@ const ICE_SERVERS = {
 
 const CHUNK_SIZE = 16 * 1024; // 16KB WebRTC-safe SCTP chunk (keeps mouse/input responsive)
 const DISK_BATCH_SIZE = 256 * 1024; // 256KB IPC disk read/write batching
-const SCTP_HIGH_WATERMARK = 256 * 1024; // 256KB max SCTP queue to prevent 16MB cap & input stall
-const SCTP_LOW_THRESHOLD = 64 * 1024; // 64KB low threshold for smooth drain wakeup
+const SCTP_HIGH_WATERMARK = 64 * 1024; // 64KB cap prevents Wi-Fi/hotspot queue bloat & RPC starvation
+const SCTP_LOW_THRESHOLD = 16 * 1024; // 16KB low threshold for smooth drain wakeup
 const FILE_CLIP_AUTO_MAX_BYTES = 50 * 1024 * 1024; // 50MB auto-clipboard stage limit
 const DEFAULT_CLOUD_SIGNALING_URL = 'wss://primedesk-signal.onrender.com';
 
@@ -28,6 +28,8 @@ class PrimeDeskApp {
     this.fileOpsChannel = null;
     this.clipboardChannel = null;
     this.localStream = null;
+    this.videoSender = null;
+    this.peerDisconnectTimer = null;
     this.role = null; // 'host' | 'viewer'
     this.myCode = this.generateCode();
     this.remoteHostResolution = { width: 1920, height: 1080 };
@@ -654,10 +656,8 @@ class PrimeDeskApp {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'leave' }));
         }
-        if (this.peerConnection) {
-          try { this.peerConnection.close(); } catch (e) {}
-          this.peerConnection = null;
-        }
+        this.clearSessionChannels();
+        this.registerHostOnServer();
       });
     }
 
@@ -1350,12 +1350,18 @@ class PrimeDeskApp {
         this.handlePeerSignal(msg.data);
         break;
 
-      case 'session-ended':
+      case 'session-ended': {
+        const wasActive = Boolean(
+          this.role || this.pendingConnectCode || this.peerConnection || this.dom.remoteViewport.style.display !== 'none'
+        );
         this.hideConnectingOverlay();
         if (this.dom.fileManagerModal) this.dom.fileManagerModal.style.display = 'none';
-        this.showCustomAlert('Session Concluded', `Remote session ended: ${msg.reason || 'Disconnected'}`, 'info');
-        this.endSession();
+        if (wasActive) {
+          this.endSession();
+          this.showCustomAlert('Session Concluded', `Remote session ended: ${msg.reason || 'Disconnected'}`, 'info');
+        }
         break;
+      }
 
       case 'error':
         this.hideConnectingOverlay();
@@ -1382,16 +1388,96 @@ class PrimeDeskApp {
     }
   }
 
+  clearPeerDisconnectTimer() {
+    if (this.peerDisconnectTimer) {
+      clearTimeout(this.peerDisconnectTimer);
+      this.peerDisconnectTimer = null;
+    }
+  }
+
+  clearSessionChannels() {
+    this.clearPeerDisconnectTimer();
+    this.videoSender = null;
+    if (this.inputChannel) this.inputChannel.onclose = null;
+    if (this.fileChannel) {
+      this.fileChannel.onclose = null;
+      this.fileChannel.onerror = null;
+    }
+    this.inputChannel = null;
+    this.chatChannel = null;
+    this.fileChannel = null;
+    this.fileOpsChannel = null;
+    this.clipboardChannel = null;
+    if (this.peerConnection) {
+      this.peerConnection.onconnectionstatechange = null;
+      this.peerConnection.oniceconnectionstatechange = null;
+      this.peerConnection.onicecandidate = null;
+      this.peerConnection.ondatachannel = null;
+      this.peerConnection.ontrack = null;
+      try { this.peerConnection.close(); } catch (e) {}
+      this.peerConnection = null;
+    }
+  }
+
+  getVideoTargetBitrate(throttleForTransfer = false) {
+    if (throttleForTransfer) return 600 * 1000;
+    if (this.qualityProfile === 'low') return 1000 * 1000;
+    if (this.qualityProfile === 'ultra') return 5000 * 1000;
+    return 2500 * 1000;
+  }
+
+  async refreshVideoBitrate() {
+    if (!this.videoSender || !this.peerConnection) return;
+    const transferActive = Boolean(this.activeSendTransfer || this.activeReceiveTransfer);
+    const maxBitrate = this.getVideoTargetBitrate(transferActive);
+    try {
+      const params = this.videoSender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = maxBitrate;
+      await this.videoSender.setParameters(params);
+    } catch (e) {}
+  }
+
   attachPeerLifecycle(pc) {
-    pc.onconnectionstatechange = () => {
+    const handleState = () => {
       if (!pc || pc !== this.peerConnection) return;
-      const state = pc.connectionState;
-      if (state === 'failed' || state === 'closed') {
-        console.warn('[WebRTC] Peer connection state:', state);
+      const conn = pc.connectionState;
+      const ice = pc.iceConnectionState;
+      if (conn === 'connected' || ice === 'connected' || ice === 'completed') {
+        if (conn !== 'disconnected' && conn !== 'failed' && ice !== 'disconnected' && ice !== 'failed') {
+          this.clearPeerDisconnectTimer();
+          return;
+        }
+      }
+      if (conn === 'disconnected' || ice === 'disconnected') {
+        if (!this.peerDisconnectTimer) {
+          this.peerDisconnectTimer = setTimeout(() => {
+            this.peerDisconnectTimer = null;
+            if (pc === this.peerConnection && (
+              pc.connectionState === 'disconnected' || pc.connectionState === 'failed' ||
+              pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed'
+            )) {
+              console.warn('[WebRTC] Peer remained disconnected; closing session');
+              this.endSession();
+            }
+          }, 4500);
+        }
+        return;
+      }
+      if (conn === 'failed' || conn === 'closed' || ice === 'failed' || ice === 'closed') {
+        this.clearPeerDisconnectTimer();
+        console.warn('[WebRTC] Peer connection state:', conn, 'ICE:', ice);
         this.cleanupFileTransfers();
         this.hideTransferToast();
+        if ((conn === 'failed' || ice === 'failed') && this.role) {
+          this.endSession();
+        }
       }
     };
+    pc.onconnectionstatechange = handleState;
+    pc.oniceconnectionstatechange = handleState;
   }
 
   // HOST STREAM IMPLEMENTATION
@@ -1436,8 +1522,12 @@ class PrimeDeskApp {
       this.attachPeerLifecycle(this.peerConnection);
 
       this.localStream.getTracks().forEach(track => {
-        this.peerConnection.addTrack(track, this.localStream);
+        const sender = this.peerConnection.addTrack(track, this.localStream);
+        if (track.kind === 'video') {
+          this.videoSender = sender;
+        }
       });
+      this.refreshVideoBitrate();
 
       this.inputChannel = this.peerConnection.createDataChannel('input', { ordered: true });
       this.setupHostInputChannel(this.inputChannel);
@@ -1477,6 +1567,12 @@ class PrimeDeskApp {
 
   setupHostInputChannel(dc) {
     dc.onopen = () => console.log('[Host] Input DataChannel Open');
+    dc.onclose = () => {
+      if (this.role === 'host' && dc === this.inputChannel) {
+        console.warn('[Host] Input DataChannel closed by peer; restoring window');
+        this.endSession();
+      }
+    };
     dc.onmessage = (event) => {
       if (window.primeDeskAPI && event.data) {
         if (event.data === 'PING') {
@@ -1543,18 +1639,20 @@ class PrimeDeskApp {
         }
       }).catch(async (err) => {
         console.error('[File] RX queue error:', err);
+        let badTxId = null;
         if (this.activeReceiveTransfer) {
-          const badTxId = this.activeReceiveTransfer.transferId;
+          badTxId = this.activeReceiveTransfer.transferId;
           if (this.activeReceiveTransfer.writeId && window.primeDeskAPI) {
             try { await window.primeDeskAPI.fsAbortWrite(this.activeReceiveTransfer.writeId); } catch (e) {}
           }
           this.activeReceiveTransfer = null;
-          if (this.fileOpsChannel && this.fileOpsChannel.readyState === 'open') {
-            this.fileOpsChannel.send(JSON.stringify({ type: 'fs-pull-cancel', transferId: badTxId }));
-            this.fileOpsChannel.send(JSON.stringify({ type: 'transfer-error', message: `Write failed on receiver: ${err.message}` }));
-          }
-          this.updateTransferUI(`Error: ${err.message}`, 0, false, true);
+          this.refreshVideoBitrate();
         }
+        if (this.fileOpsChannel && this.fileOpsChannel.readyState === 'open') {
+          this.fileOpsChannel.send(JSON.stringify({ type: 'fs-pull-cancel', transferId: badTxId }));
+          this.fileOpsChannel.send(JSON.stringify({ type: 'transfer-error', message: `Write failed on receiver: ${err.message}` }));
+        }
+        this.updateTransferUI(`Error: ${err.message}`, 0, false, true);
       });
     };
   }
@@ -1667,10 +1765,7 @@ class PrimeDeskApp {
       this.localStream = null;
     }
 
-    if (this.peerConnection) {
-      this.peerConnection.close();
-      this.peerConnection = null;
-    }
+    this.clearSessionChannels();
 
     // Re-register terminal code to stay ready
     this.registerHostOnServer();
@@ -2095,6 +2190,7 @@ class PrimeDeskApp {
       entry.reject(new Error('Session closed'));
     }
     this.pendingFileOps.clear();
+    this.refreshVideoBitrate();
   }
 
   waitForFileBufferDrain(dc) {
@@ -2152,6 +2248,7 @@ class PrimeDeskApp {
 
     const tx = { transferId, aborted: false, readId: null };
     this.activeSendTransfer = tx;
+    this.refreshVideoBitrate();
 
     const labelPrefix = purpose === 'clipboard-paste' ? 'Pasting' : 'Sending';
     const summaryName = rootNames.length === 1 ? rootNames[0] : `${rootNames.length} items`;
@@ -2165,8 +2262,17 @@ class PrimeDeskApp {
       totalSize,
       totalFiles: files.length,
       rootNames,
-      emptyDirs
+      emptyDirs: emptyDirs.slice(0, 200)
     }));
+
+    for (let edIdx = 200; edIdx < emptyDirs.length; edIdx += 200) {
+      if (tx.aborted || dc.readyState !== 'open') break;
+      dc.send(JSON.stringify({
+        type: 'mkdir-batch',
+        transferId,
+        emptyDirs: emptyDirs.slice(edIdx, edIdx + 200)
+      }));
+    }
 
     let sentBytes = 0;
 
@@ -2196,9 +2302,17 @@ class PrimeDeskApp {
 
             let innerOff = 0;
             while (innerOff < batchBuf.byteLength && !tx.aborted && dc.readyState === 'open') {
-              // Strictly cap SCTP queue at 256KB so mouse, keyboard, video, and Cancel stay instant
+              // Strictly cap SCTP queue at 64KB so mouse, keyboard, file-ops, and Cancel stay responsive
+              let lastBuffered = dc.bufferedAmount;
+              let stallSince = Date.now();
               while (dc.bufferedAmount > SCTP_HIGH_WATERMARK && !tx.aborted && dc.readyState === 'open') {
                 await this.waitForFileBufferDrain(dc);
+                if (dc.bufferedAmount < lastBuffered || dc.bufferedAmount <= SCTP_HIGH_WATERMARK) {
+                  lastBuffered = dc.bufferedAmount;
+                  stallSince = Date.now();
+                } else if (Date.now() - stallSince > 25000) {
+                  throw new Error('Transfer stalled: remote peer stopped receiving data');
+                }
               }
               if (tx.aborted || dc.readyState !== 'open') break;
 
@@ -2234,7 +2348,7 @@ class PrimeDeskApp {
         dc.send(JSON.stringify({ type: 'batch-end', transferId, purpose }));
         this.updateTransferUI(`Completed: ${summaryName}`, 100, false, true);
         if (this.role === 'viewer' && purpose === 'manager' && this.dom.fileManagerModal.style.display === 'flex') {
-          await this.loadFmDir('remote', this.fmState.remote.path);
+          this.loadFmDir('remote', this.fmState.remote.path).catch(() => {});
         }
       }
     } catch (err) {
@@ -2248,6 +2362,7 @@ class PrimeDeskApp {
         try { await window.primeDeskAPI.fsCloseRead(tx.readId); } catch (e) {}
       }
       this.activeSendTransfer = null;
+      this.refreshVideoBitrate();
       setTimeout(() => {
         if (!this.activeSendTransfer && !this.activeReceiveTransfer) {
           this.hideTransferToast();
@@ -2328,6 +2443,7 @@ class PrimeDeskApp {
         pendingBytes: 0,
         filesDone: 0
       };
+      this.refreshVideoBitrate();
       const label = msg.rootNames && msg.rootNames.length === 1 ? msg.rootNames[0] : `${msg.totalFiles} files`;
       this.updateTransferUI(`Receiving: ${label}`, 0, true, true);
       return;
@@ -2336,7 +2452,13 @@ class PrimeDeskApp {
     const rx = this.activeReceiveTransfer;
     if (!rx || rx.transferId !== msg.transferId) return;
 
-    if (msg.type === 'file-start') {
+    if (msg.type === 'mkdir-batch') {
+      if (Array.isArray(msg.emptyDirs)) {
+        for (const rel of msg.emptyDirs) {
+          try { await window.primeDeskAPI.fsCreateEmptyDir(rx.baseDir, rel); } catch (e) {}
+        }
+      }
+    } else if (msg.type === 'file-start') {
       const opened = await window.primeDeskAPI.fsBeginWrite(rx.baseDir, msg.relPath);
       rx.writeId = opened.writeId;
       rx.currentFileName = msg.name || '';
@@ -2361,6 +2483,7 @@ class PrimeDeskApp {
         rx.writeId = null;
       }
       this.activeReceiveTransfer = null;
+      this.refreshVideoBitrate();
       this.updateTransferUI(`Cancelled: ${msg.reason || 'Aborted'}`, 0, false, true);
       setTimeout(() => this.hideTransferToast(), 3000);
     } else if (msg.type === 'batch-end') {
@@ -2371,6 +2494,7 @@ class PrimeDeskApp {
       }
       const completed = rx;
       this.activeReceiveTransfer = null;
+      this.refreshVideoBitrate();
 
       if (completed.purpose === 'clipboard-paste') {
         const rootPaths = [];
@@ -2432,7 +2556,7 @@ class PrimeDeskApp {
       const timer = setTimeout(() => {
         this.pendingFileOps.delete(reqId);
         reject(new Error('Remote file request timed out'));
-      }, 15000);
+      }, 30000);
       this.pendingFileOps.set(reqId, { resolve, reject, timer });
       this.fileOpsChannel.send(JSON.stringify({ type: 'fs-req', reqId, action, payload }));
     });
@@ -2475,13 +2599,25 @@ class PrimeDeskApp {
         }));
         return;
       }
-      const manifest = await window.primeDeskAPI.fsCollectItems(msg.sourcePaths);
-      if (manifest && manifest.rootItems && manifest.rootItems.length > 0) {
-        this.enqueueOutgoingTransfer({
-          targetDir: msg.targetDir || null,
-          purpose: msg.purpose || 'manager',
-          manifest
-        });
+      try {
+        const manifest = await window.primeDeskAPI.fsCollectItems(msg.sourcePaths);
+        if (manifest && manifest.rootItems && manifest.rootItems.length > 0) {
+          this.enqueueOutgoingTransfer({
+            targetDir: msg.targetDir || null,
+            purpose: msg.purpose || 'manager',
+            manifest
+          });
+        } else {
+          dc.send(JSON.stringify({
+            type: 'transfer-error',
+            message: 'Selected remote items could not be read or were empty symlinks.'
+          }));
+        }
+      } catch (err) {
+        dc.send(JSON.stringify({
+          type: 'transfer-error',
+          message: `Failed preparing remote files: ${err.message}`
+        }));
       }
     } else if (msg.type === 'fs-pull-cancel') {
       if (this.activeSendTransfer && (!msg.transferId || this.activeSendTransfer.transferId === msg.transferId)) {
@@ -2843,11 +2979,16 @@ class PrimeDeskApp {
 
   endSession() {
     this.hideConnectingOverlay();
+    if (!this.role && !this.pendingConnectCode && !this.peerConnection && this.dom.remoteViewport.style.display === 'none') {
+      return;
+    }
     this.cleanupFileTransfers();
     if (this.dom.fileManagerModal) this.dom.fileManagerModal.style.display = 'none';
     if (this.dom.remoteClipBanner) this.dom.remoteClipBanner.style.display = 'none';
     this.stopSessionRecording();
-    this.appendAuditLog('session-ended-viewer');
+    if (this.role !== 'host') {
+      this.appendAuditLog('session-ended-viewer');
+    }
 
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
@@ -2862,16 +3003,17 @@ class PrimeDeskApp {
     if (this.role === 'host') {
       this.stopHosting();
     } else {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'leave' }));
+      }
       this.role = null;
       this.pendingConnectCode = null;
-      if (this.peerConnection) {
-        this.peerConnection.close();
-        this.peerConnection = null;
-      }
+      this.clearSessionChannels();
       this.dom.remoteVideo.srcObject = null;
       this.dom.remoteViewport.style.display = 'none';
       this.dom.dashboardView.style.display = 'flex';
       if (document.fullscreenElement) document.exitFullscreen();
+      this.registerHostOnServer();
     }
   }
 }

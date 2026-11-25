@@ -103,19 +103,25 @@ wss.on('connection', (ws) => {
     if (userCode && rooms.has(userCode)) {
       const room = rooms.get(userCode);
       if (userRole === 'host') {
-        if (room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
-          room.viewerWs.send(JSON.stringify({ type: 'session-ended', reason: 'Remote device disconnected' }));
+        if (room.hostWs === ws) {
+          if (room.viewerWs && room.viewerWs.readyState === WebSocket.OPEN) {
+            room.viewerWs.send(JSON.stringify({ type: 'session-ended', reason: 'Remote device disconnected' }));
+          }
+          rooms.delete(userCode);
+          console.log(`[Signaling] Terminal offline: ${userCode}`);
         }
-        rooms.delete(userCode);
-        console.log(`[Signaling] Terminal offline: ${userCode}`);
       } else if (userRole === 'viewer') {
-        if (room.hostWs && room.hostWs.readyState === WebSocket.OPEN) {
-          room.hostWs.send(JSON.stringify({ type: 'session-ended', reason: 'Support technician disconnected' }));
+        if (room.viewerWs === ws) {
+          if (room.hostWs && room.hostWs.readyState === WebSocket.OPEN) {
+            room.hostWs.send(JSON.stringify({ type: 'session-ended', reason: 'Support technician disconnected' }));
+          }
+          room.viewerWs = null;
+          console.log(`[Signaling] Support technician disconnected from: ${userCode}`);
         }
-        room.viewerWs = null;
-        console.log(`[Signaling] Support technician disconnected from: ${userCode}`);
       }
     }
+    userCode = null;
+    userRole = null;
   };
 
   ws.isAlive = true;
