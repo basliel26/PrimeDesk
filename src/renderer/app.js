@@ -11,7 +11,10 @@ const ICE_SERVERS = {
   ]
 };
 
-const CHUNK_SIZE = 64 * 1024; // 64KB streamed disk chunk
+const CHUNK_SIZE = 16 * 1024; // 16KB WebRTC-safe SCTP chunk (keeps mouse/input responsive)
+const DISK_BATCH_SIZE = 256 * 1024; // 256KB IPC disk read/write batching
+const SCTP_HIGH_WATERMARK = 256 * 1024; // 256KB max SCTP queue to prevent 16MB cap & input stall
+const SCTP_LOW_THRESHOLD = 64 * 1024; // 64KB low threshold for smooth drain wakeup
 const FILE_CLIP_AUTO_MAX_BYTES = 50 * 1024 * 1024; // 50MB auto-clipboard stage limit
 const DEFAULT_CLOUD_SIGNALING_URL = 'wss://primedesk-signal.onrender.com';
 
@@ -1379,6 +1382,18 @@ class PrimeDeskApp {
     }
   }
 
+  attachPeerLifecycle(pc) {
+    pc.onconnectionstatechange = () => {
+      if (!pc || pc !== this.peerConnection) return;
+      const state = pc.connectionState;
+      if (state === 'failed' || state === 'closed') {
+        console.warn('[WebRTC] Peer connection state:', state);
+        this.cleanupFileTransfers();
+        this.hideTransferToast();
+      }
+    };
+  }
+
   // HOST STREAM IMPLEMENTATION
   async initiateHostStream() {
     try {
@@ -1418,6 +1433,7 @@ class PrimeDeskApp {
       this.appendAuditLog('session-started-host');
 
       this.peerConnection = new RTCPeerConnection(this.getIceServers());
+      this.attachPeerLifecycle(this.peerConnection);
 
       this.localStream.getTracks().forEach(track => {
         this.peerConnection.addTrack(track, this.localStream);
@@ -1501,8 +1517,18 @@ class PrimeDeskApp {
 
   setupFileChannel(dc) {
     dc.binaryType = 'arraybuffer';
-    dc.bufferedAmountLowThreshold = 256 * 1024;
+    dc.bufferedAmountLowThreshold = SCTP_LOW_THRESHOLD;
     dc.onopen = () => console.log('[File] Streaming Channel Ready');
+
+    dc.onclose = () => {
+      console.warn('[File] Streaming Channel Closed');
+      this.cleanupFileTransfers();
+    };
+
+    dc.onerror = (err) => {
+      console.error('[File] Streaming Channel Error:', err);
+      this.cleanupFileTransfers();
+    };
 
     // Serialize all file control + binary chunk messages strictly in arrival order
     let rxChain = Promise.resolve();
@@ -1510,17 +1536,25 @@ class PrimeDeskApp {
       const payload = event.data;
       rxChain = rxChain.then(async () => {
         if (typeof payload === 'string') {
-          try {
-            const msg = JSON.parse(payload);
-            await this.handleFileChannelControl(msg);
-          } catch (e) {
-            console.error('[File] Control error:', e);
-          }
+          const msg = JSON.parse(payload);
+          await this.handleFileChannelControl(msg);
         } else if (payload instanceof ArrayBuffer) {
           await this.handleFileChannelChunk(payload);
         }
-      }).catch((err) => {
+      }).catch(async (err) => {
         console.error('[File] RX queue error:', err);
+        if (this.activeReceiveTransfer) {
+          const badTxId = this.activeReceiveTransfer.transferId;
+          if (this.activeReceiveTransfer.writeId && window.primeDeskAPI) {
+            try { await window.primeDeskAPI.fsAbortWrite(this.activeReceiveTransfer.writeId); } catch (e) {}
+          }
+          this.activeReceiveTransfer = null;
+          if (this.fileOpsChannel && this.fileOpsChannel.readyState === 'open') {
+            this.fileOpsChannel.send(JSON.stringify({ type: 'fs-pull-cancel', transferId: badTxId }));
+            this.fileOpsChannel.send(JSON.stringify({ type: 'transfer-error', message: `Write failed on receiver: ${err.message}` }));
+          }
+          this.updateTransferUI(`Error: ${err.message}`, 0, false, true);
+        }
       });
     };
   }
@@ -1680,6 +1714,7 @@ class PrimeDeskApp {
 
   startViewerPeer() {
     this.peerConnection = new RTCPeerConnection(this.getIceServers());
+    this.attachPeerLifecycle(this.peerConnection);
 
     this.peerConnection.onicecandidate = (e) => {
       if (e.candidate) {
@@ -1850,6 +1885,9 @@ class PrimeDeskApp {
         this.sendInputCommand('U left');
         this.sendInputCommand('U right');
         this.sendInputCommand('U middle');
+        this.sendInputCommand('KU 17');
+        this.sendInputCommand('KU 16');
+        this.sendInputCommand('KU 18');
       }
     });
 
@@ -1866,6 +1904,7 @@ class PrimeDeskApp {
         // Intercept Ctrl+V (Paste local text OR CF_HDROP files into remote host)
         if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V' || e.keyCode === 86)) {
           e.preventDefault();
+          this.sendInputCommand('KU 17'); // Release viewer-side held Ctrl before native paste
 
           // If user copied on remote and immediately pastes inside remote, cancel auto-pull!
           if (this.pendingRemoteClipTimer) {
@@ -1915,6 +1954,7 @@ class PrimeDeskApp {
 
         // Intercept Ctrl+C (Copy text OR files from remote host)
         if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C' || e.keyCode === 67)) {
+          this.sendInputCommand('KU 17');
           this.sendInputCommand('COPY');
           setTimeout(() => {
             if (this.clipboardChannel && this.clipboardChannel.readyState === 'open') {
@@ -1996,7 +2036,13 @@ class PrimeDeskApp {
     }
   }
 
-  updateTransferUI(label, pct, showCancel = false) {
+  updateTransferUI(label, pct, showCancel = false, force = false) {
+    const now = performance.now();
+    if (!force && this.lastTransferUiTime && now - this.lastTransferUiTime < 150) {
+      return;
+    }
+    this.lastTransferUiTime = now;
+
     const clamped = Math.max(0, Math.min(100, Math.round(pct || 0)));
     if (this.dom.toastFileName) this.dom.toastFileName.textContent = label;
     if (this.dom.toastPercent) this.dom.toastPercent.textContent = `${clamped}%`;
@@ -2030,6 +2076,8 @@ class PrimeDeskApp {
     this.isSendingTransfer = false;
 
     if (this.activeReceiveTransfer) {
+      this.activeReceiveTransfer.pendingChunks = [];
+      this.activeReceiveTransfer.pendingBytes = 0;
       if (this.activeReceiveTransfer.writeId && window.primeDeskAPI) {
         try { await window.primeDeskAPI.fsAbortWrite(this.activeReceiveTransfer.writeId); } catch (e) {}
       }
@@ -2051,7 +2099,7 @@ class PrimeDeskApp {
 
   waitForFileBufferDrain(dc) {
     return new Promise((resolve) => {
-      if (!dc || dc.readyState !== 'open' || dc.bufferedAmount <= 1024 * 1024) {
+      if (!dc || dc.readyState !== 'open' || dc.bufferedAmount <= SCTP_HIGH_WATERMARK) {
         return resolve();
       }
       let settled = false;
@@ -2062,7 +2110,7 @@ class PrimeDeskApp {
         clearTimeout(timer);
         resolve();
       };
-      const timer = setTimeout(done, 100);
+      const timer = setTimeout(done, 40);
       dc.addEventListener('bufferedamountlow', done);
     });
   }
@@ -2094,6 +2142,8 @@ class PrimeDeskApp {
     const dc = this.fileChannel;
     if (!dc || dc.readyState !== 'open' || !window.primeDeskAPI) return;
 
+    dc.bufferedAmountLowThreshold = SCTP_LOW_THRESHOLD;
+
     const transferId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const files = manifest.files || [];
     const emptyDirs = manifest.emptyDirs || [];
@@ -2105,7 +2155,7 @@ class PrimeDeskApp {
 
     const labelPrefix = purpose === 'clipboard-paste' ? 'Pasting' : 'Sending';
     const summaryName = rootNames.length === 1 ? rootNames[0] : `${rootNames.length} items`;
-    this.updateTransferUI(`${labelPrefix}: ${summaryName}`, 0, true);
+    this.updateTransferUI(`${labelPrefix}: ${summaryName}`, 0, true, true);
 
     dc.send(JSON.stringify({
       type: 'batch-start',
@@ -2124,12 +2174,13 @@ class PrimeDeskApp {
       for (let i = 0; i < files.length; i++) {
         if (tx.aborted || dc.readyState !== 'open') break;
         const f = files[i];
+        const shortName = f.relPath.split('/').pop();
 
         dc.send(JSON.stringify({
           type: 'file-start',
           transferId,
           relPath: f.relPath,
-          name: f.relPath.split('/').pop(),
+          name: shortName,
           size: f.size
         }));
 
@@ -2139,20 +2190,31 @@ class PrimeDeskApp {
           let offset = 0;
 
           while (offset < f.size && !tx.aborted && dc.readyState === 'open') {
-            if (dc.bufferedAmount > 1024 * 1024) {
-              await this.waitForFileBufferDrain(dc);
+            const batchLen = Math.min(DISK_BATCH_SIZE, f.size - offset);
+            const batchBuf = await window.primeDeskAPI.fsReadChunk(tx.readId, offset, batchLen);
+            if (!batchBuf || batchBuf.byteLength === 0) break;
+
+            let innerOff = 0;
+            while (innerOff < batchBuf.byteLength && !tx.aborted && dc.readyState === 'open') {
+              // Strictly cap SCTP queue at 256KB so mouse, keyboard, video, and Cancel stay instant
+              while (dc.bufferedAmount > SCTP_HIGH_WATERMARK && !tx.aborted && dc.readyState === 'open') {
+                await this.waitForFileBufferDrain(dc);
+              }
               if (tx.aborted || dc.readyState !== 'open') break;
+
+              const sliceEnd = Math.min(innerOff + CHUNK_SIZE, batchBuf.byteLength);
+              const slice = batchBuf.subarray(innerOff, sliceEnd);
+              dc.send(slice);
+              innerOff = sliceEnd;
+              sentBytes += slice.byteLength;
+
+              const pct = totalSize > 0 ? Math.round((sentBytes / totalSize) * 100) : 100;
+              this.updateTransferUI(`${labelPrefix} (${i + 1}/${files.length}): ${shortName}`, pct, true, false);
             }
-            const toRead = Math.min(CHUNK_SIZE, f.size - offset);
-            const chunk = await window.primeDeskAPI.fsReadChunk(tx.readId, offset, toRead);
-            if (!chunk || chunk.byteLength === 0) break;
 
-            dc.send(chunk);
-            offset += chunk.byteLength;
-            sentBytes += chunk.byteLength;
-
-            const pct = totalSize > 0 ? Math.round((sentBytes / totalSize) * 100) : 100;
-            this.updateTransferUI(`${labelPrefix} (${i + 1}/${files.length}): ${f.relPath.split('/').pop()}`, pct, true);
+            offset += batchBuf.byteLength;
+            // Cooperative yield between 256KB batches keeps Electron renderer responsive
+            await new Promise(r => setTimeout(r, 0));
           }
 
           await window.primeDeskAPI.fsCloseRead(tx.readId);
@@ -2167,10 +2229,10 @@ class PrimeDeskApp {
         if (dc.readyState === 'open') {
           dc.send(JSON.stringify({ type: 'batch-abort', transferId, reason: 'Cancelled by user' }));
         }
-        this.updateTransferUI('Transfer cancelled', 0, false);
+        this.updateTransferUI('Transfer cancelled', 0, false, true);
       } else if (dc.readyState === 'open') {
         dc.send(JSON.stringify({ type: 'batch-end', transferId, purpose }));
-        this.updateTransferUI(`Completed: ${summaryName}`, 100, false);
+        this.updateTransferUI(`Completed: ${summaryName}`, 100, false, true);
         if (this.role === 'viewer' && purpose === 'manager' && this.dom.fileManagerModal.style.display === 'flex') {
           await this.loadFmDir('remote', this.fmState.remote.path);
         }
@@ -2178,9 +2240,9 @@ class PrimeDeskApp {
     } catch (err) {
       console.error('[File] Outgoing stream error:', err);
       if (dc.readyState === 'open') {
-        dc.send(JSON.stringify({ type: 'batch-abort', transferId, reason: err.message }));
+        try { dc.send(JSON.stringify({ type: 'batch-abort', transferId, reason: err.message })); } catch (e) {}
       }
-      this.updateTransferUI(`Failed: ${err.message}`, 0, false);
+      this.updateTransferUI(`Failed: ${err.message}`, 0, false, true);
     } finally {
       if (tx.readId && window.primeDeskAPI) {
         try { await window.primeDeskAPI.fsCloseRead(tx.readId); } catch (e) {}
@@ -2205,6 +2267,19 @@ class PrimeDeskApp {
         transferId: this.activeReceiveTransfer.transferId
       }));
     }
+  }
+
+  async flushReceiveBuffer(rx) {
+    if (!rx || !rx.writeId || !rx.pendingChunks || rx.pendingChunks.length === 0) return;
+    const merged = new Uint8Array(rx.pendingBytes);
+    let offset = 0;
+    for (const part of rx.pendingChunks) {
+      merged.set(part, offset);
+      offset += part.byteLength;
+    }
+    rx.pendingChunks = [];
+    rx.pendingBytes = 0;
+    await window.primeDeskAPI.fsWriteChunk(rx.writeId, merged);
   }
 
   async handleFileChannelControl(msg) {
@@ -2246,12 +2321,15 @@ class PrimeDeskApp {
         receivedTotal: 0,
         rootNames: msg.rootNames || [],
         writeId: null,
+        currentFileName: '',
         currentFileSize: 0,
         currentFileReceived: 0,
+        pendingChunks: [],
+        pendingBytes: 0,
         filesDone: 0
       };
       const label = msg.rootNames && msg.rootNames.length === 1 ? msg.rootNames[0] : `${msg.totalFiles} files`;
-      this.updateTransferUI(`Receiving: ${label}`, 0, true);
+      this.updateTransferUI(`Receiving: ${label}`, 0, true, true);
       return;
     }
 
@@ -2261,25 +2339,32 @@ class PrimeDeskApp {
     if (msg.type === 'file-start') {
       const opened = await window.primeDeskAPI.fsBeginWrite(rx.baseDir, msg.relPath);
       rx.writeId = opened.writeId;
+      rx.currentFileName = msg.name || '';
       rx.currentFileSize = msg.size || 0;
       rx.currentFileReceived = 0;
+      rx.pendingChunks = [];
+      rx.pendingBytes = 0;
       const pct = rx.totalSize > 0 ? Math.round((rx.receivedTotal / rx.totalSize) * 100) : 100;
-      this.updateTransferUI(`Receiving (${rx.filesDone + 1}/${rx.totalFiles}): ${msg.name}`, pct, true);
+      this.updateTransferUI(`Receiving (${rx.filesDone + 1}/${rx.totalFiles}): ${rx.currentFileName}`, pct, true, true);
     } else if (msg.type === 'file-end') {
+      await this.flushReceiveBuffer(rx);
       if (rx.writeId) {
         await window.primeDeskAPI.fsEndWrite(rx.writeId);
         rx.writeId = null;
       }
       rx.filesDone++;
     } else if (msg.type === 'batch-abort') {
+      rx.pendingChunks = [];
+      rx.pendingBytes = 0;
       if (rx.writeId) {
         await window.primeDeskAPI.fsAbortWrite(rx.writeId);
         rx.writeId = null;
       }
       this.activeReceiveTransfer = null;
-      this.updateTransferUI(`Cancelled: ${msg.reason || 'Aborted'}`, 0, false);
+      this.updateTransferUI(`Cancelled: ${msg.reason || 'Aborted'}`, 0, false, true);
       setTimeout(() => this.hideTransferToast(), 3000);
     } else if (msg.type === 'batch-end') {
+      await this.flushReceiveBuffer(rx);
       if (rx.writeId) {
         await window.primeDeskAPI.fsEndWrite(rx.writeId);
         rx.writeId = null;
@@ -2296,16 +2381,16 @@ class PrimeDeskApp {
         if (this.permControl) {
           await window.primeDeskAPI.sendInput('PASTE');
         }
-        this.updateTransferUI(`Pasted: ${completed.rootNames.join(', ')}`, 100, false);
+        this.updateTransferUI(`Pasted: ${completed.rootNames.join(', ')}`, 100, false, true);
       } else if (completed.purpose === 'clipboard') {
         const rootPaths = [];
         for (const r of completed.rootNames) {
           rootPaths.push(await window.primeDeskAPI.fsResolveSafeTarget(completed.baseDir, r));
         }
         await window.primeDeskAPI.clipSetFiles(rootPaths);
-        this.updateTransferUI('Copied files ready — Press Ctrl+V on your PC', 100, false);
+        this.updateTransferUI('Copied files ready — Press Ctrl+V on your PC', 100, false, true);
       } else {
-        this.updateTransferUI('Download complete', 100, false);
+        this.updateTransferUI('Download complete', 100, false, true);
         if (this.role === 'viewer' && this.dom.fileManagerModal.style.display === 'flex') {
           await this.loadFmDir('local', this.fmState.local.path);
         }
@@ -2321,14 +2406,19 @@ class PrimeDeskApp {
   async handleFileChannelChunk(arrayBuffer) {
     const rx = this.activeReceiveTransfer;
     if (!rx || !rx.writeId) return;
-    await window.primeDeskAPI.fsWriteChunk(rx.writeId, new Uint8Array(arrayBuffer));
-    rx.currentFileReceived += arrayBuffer.byteLength;
-    rx.receivedTotal += arrayBuffer.byteLength;
+
+    const u8 = new Uint8Array(arrayBuffer);
+    rx.pendingChunks.push(u8);
+    rx.pendingBytes += u8.byteLength;
+    rx.currentFileReceived += u8.byteLength;
+    rx.receivedTotal += u8.byteLength;
+
+    if (rx.pendingBytes >= DISK_BATCH_SIZE) {
+      await this.flushReceiveBuffer(rx);
+    }
+
     const pct = rx.totalSize > 0 ? Math.round((rx.receivedTotal / rx.totalSize) * 100) : 100;
-    if (this.dom.toastPercent) this.dom.toastPercent.textContent = `${pct}%`;
-    if (this.dom.toastProgressBar) this.dom.toastProgressBar.style.width = `${pct}%`;
-    if (this.dom.fmTransferPercent) this.dom.fmTransferPercent.textContent = `${pct}%`;
-    if (this.dom.fmTransferProgressBar) this.dom.fmTransferProgressBar.style.width = `${pct}%`;
+    this.updateTransferUI(`Receiving (${rx.filesDone + 1}/${rx.totalFiles}): ${rx.currentFileName}`, pct, true, false);
   }
 
   // ==================== FILE-OPS RPC & CLIPBOARD PULL ====================
@@ -2720,8 +2810,11 @@ class PrimeDeskApp {
       await this.showCustomAlert('Remote Folder Missing', 'Open a destination folder on the Remote PC pane first.', 'warning');
       return;
     }
+    this.updateTransferUI('Preparing selected files...', 0, false, true);
     const manifest = await window.primeDeskAPI.fsCollectItems(selected);
     if (!manifest || !manifest.rootItems || manifest.rootItems.length === 0) {
+      this.hideTransferToast();
+      if (this.dom.fmTransferStatus) this.dom.fmTransferStatus.textContent = 'Ready';
       await this.showCustomAlert('Nothing to Send', 'Selected items could not be read.', 'warning');
       return;
     }
@@ -2735,6 +2828,11 @@ class PrimeDeskApp {
       await this.showCustomAlert('Select Files', 'Select one or more remote files or folders to Take (download to your PC).', 'info');
       return;
     }
+    if (!this.fileOpsChannel || this.fileOpsChannel.readyState !== 'open') {
+      await this.showCustomAlert('Not Connected', 'File channel is not ready.', 'warning');
+      return;
+    }
+    this.updateTransferUI('Preparing selected files...', 0, false, true);
     this.fileOpsChannel.send(JSON.stringify({
       type: 'fs-pull-req',
       sourcePaths: selected,

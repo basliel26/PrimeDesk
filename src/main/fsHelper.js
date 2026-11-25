@@ -180,9 +180,15 @@ async function trashPaths(paths) {
   }
 }
 
-async function walkItem(fullPath, relPrefix, files, emptyDirs) {
-  const stat = await fs.promises.stat(fullPath);
+async function walkItem(fullPath, relPrefix, files, emptyDirs, seenDirs = new Set()) {
+  const stat = await fs.promises.lstat(fullPath);
+  if (stat.isSymbolicLink()) return 0;
+
   if (stat.isDirectory()) {
+    const realDir = await fs.promises.realpath(fullPath).catch(() => fullPath);
+    if (seenDirs.has(realDir)) return 0;
+    seenDirs.add(realDir);
+
     const children = await fs.promises.readdir(fullPath);
     if (children.length === 0) {
       emptyDirs.push(relPrefix.replace(/\\/g, '/'));
@@ -193,7 +199,7 @@ async function walkItem(fullPath, relPrefix, files, emptyDirs) {
       const childFull = path.join(fullPath, child);
       const childRel = relPrefix ? `${relPrefix}/${child}` : child;
       try {
-        dirTotal += await walkItem(childFull, childRel, files, emptyDirs);
+        dirTotal += await walkItem(childFull, childRel, files, emptyDirs, seenDirs);
       } catch (e) {}
     }
     return dirTotal;
