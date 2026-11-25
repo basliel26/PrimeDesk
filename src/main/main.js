@@ -421,7 +421,7 @@ function classifyNetworkFailure(probeResult, resolvedProxy) {
       reason: 'dns-error',
       summary: 'DNS Resolution Failed',
       errorCode: 'ERR_NAME_NOT_RESOLVED',
-      details: `Cannot resolve primedesk-signal.onrender.com (Proxy: ${resolvedProxy}). Check DNS or network proxy settings.`
+      details: `Cannot resolve Cloud Signaling host (Proxy: ${resolvedProxy}). Check DNS or network proxy settings.`
     };
   }
   if (/ERR_CERT_|CERT_|SSL/i.test(errMsg)) {
@@ -470,7 +470,7 @@ ipcMain.handle('set-network-proxy', async (event, config) => {
 });
 
 ipcMain.handle('probe-and-recover-cloud', async (event, config = {}) => {
-  const signalingUrl = config.signalingUrl || 'wss://primedesk-signal.onrender.com';
+  const signalingUrl = config.signalingUrl || 'wss://primedesk-signal.baslielgetu97.workers.dev';
   const probeTarget = signalingUrl.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
   const configuredMode = config.proxyMode || 'system';
   const initialConfig = {

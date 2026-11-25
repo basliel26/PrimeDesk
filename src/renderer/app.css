@@ -270,11 +270,12 @@ body {
 }
 
 .code-display {
-  font-size: 2rem;
+  font-size: 1.7rem;
   font-weight: 800;
-  letter-spacing: 4px;
+  letter-spacing: 3px;
   color: #38bdf8;
   font-family: monospace;
+  white-space: nowrap;
 }
 
 .copy-btn {

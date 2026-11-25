@@ -16,11 +16,13 @@ const DISK_BATCH_SIZE = 256 * 1024; // 256KB IPC disk read/write batching
 const SCTP_HIGH_WATERMARK = 64 * 1024; // 64KB cap prevents Wi-Fi/hotspot queue bloat & RPC starvation
 const SCTP_LOW_THRESHOLD = 16 * 1024; // 16KB low threshold for smooth drain wakeup
 const FILE_CLIP_AUTO_MAX_BYTES = 50 * 1024 * 1024; // 50MB auto-clipboard stage limit
-const DEFAULT_CLOUD_SIGNALING_URL = 'wss://primedesk-signal.onrender.com';
+const DEFAULT_CLOUD_SIGNALING_URL = 'wss://primedesk-signal.baslielgetu97.workers.dev';
 
 class PrimeDeskApp {
   constructor() {
     this.ws = null;
+    this.viewerWs = null;
+    this.viewerWsKeepaliveTimer = null;
     this.peerConnection = null;
     this.inputChannel = null;
     this.chatChannel = null;
@@ -31,7 +33,10 @@ class PrimeDeskApp {
     this.videoSender = null;
     this.peerDisconnectTimer = null;
     this.role = null; // 'host' | 'viewer'
-    this.myCode = this.generateCode();
+    const identity = this.loadOrCreateDeviceIdentity();
+    this.myCode = identity.code;
+    this.deviceToken = identity.token;
+    this.codeCollisionRetries = 0;
     this.remoteHostResolution = { width: 1920, height: 1080 };
 
     // Enterprise Preferences State
@@ -235,13 +240,86 @@ class PrimeDeskApp {
   }
 
   generateCode() {
-    const num = Math.floor(100000 + Math.random() * 900000);
-    return num.toString();
+    if (window.crypto && window.crypto.getRandomValues) {
+      const arr = new Uint32Array(1);
+      window.crypto.getRandomValues(arr);
+      return (100000000 + (arr[0] % 900000000)).toString();
+    }
+    return Math.floor(100000000 + Math.random() * 900000000).toString();
+  }
+
+  generateDeviceToken() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+  }
+
+  loadOrCreateDeviceIdentity() {
+    let code = localStorage.getItem('primedesk_device_id');
+    if (!code || !/^\d{9}$/.test(code)) {
+      code = this.generateCode();
+      localStorage.setItem('primedesk_device_id', code);
+    }
+    let token = localStorage.getItem('primedesk_device_secret');
+    if (!token) {
+      token = this.generateDeviceToken();
+      localStorage.setItem('primedesk_device_secret', token);
+    }
+    return { code, token };
+  }
+
+  rotateDeviceId() {
+    this.myCode = this.generateCode();
+    localStorage.setItem('primedesk_device_id', this.myCode);
+    if (this.dom && this.dom.mySessionCode) {
+      this.dom.mySessionCode.textContent = this.formatCode(this.myCode);
+    }
+    return this.myCode;
   }
 
   formatCode(code) {
-    if (!code || code.length !== 6) return code;
-    return `${code.slice(0, 3)} ${code.slice(3)}`;
+    if (!code) return '';
+    const digits = String(code).replace(/\D/g, '');
+    if (digits.length === 9) {
+      return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)}`;
+    }
+    if (digits.length === 6) {
+      return `${digits.slice(0, 3)} ${digits.slice(3, 6)}`;
+    }
+    return code;
+  }
+
+  attachCodeInputMask(inputEl) {
+    if (!inputEl) return;
+    inputEl.addEventListener('input', (e) => {
+      const digits = e.target.value.replace(/\D/g, '').slice(0, 9);
+      let formatted = digits;
+      if (digits.length > 6) {
+        formatted = `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6, 9)}`;
+      } else if (digits.length > 3) {
+        formatted = `${digits.slice(0, 3)}-${digits.slice(3, 6)}`;
+      }
+      e.target.value = formatted;
+    });
+  }
+
+  isCloudMode() {
+    return this.serverMode === 'cloud'
+      || this.signalingUrl.includes('workers.dev')
+      || this.signalingUrl.includes('onrender.com');
+  }
+
+  buildSignalingUrl(role, code, token = '') {
+    try {
+      const url = new URL(this.signalingUrl);
+      url.searchParams.set('role', role);
+      url.searchParams.set('code', code);
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    } catch (e) {
+      return this.signalingUrl;
+    }
   }
 
   async hashPassword(password) {
@@ -653,11 +731,8 @@ class PrimeDeskApp {
         this.hideConnectingOverlay();
         this.role = null;
         this.pendingConnectCode = null;
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'leave' }));
-        }
+        this.closeViewerSocket(true);
         this.clearSessionChannels();
-        this.registerHostOnServer();
       });
     }
 
@@ -694,21 +769,16 @@ class PrimeDeskApp {
     // Connect Button
     this.dom.connectBtn.addEventListener('click', async () => {
       const code = this.dom.remoteCodeInput.value.replace(/\D/g, '');
-      if (code.length !== 6) {
-        await this.showCustomAlert('Invalid Address', 'Please enter a valid 6-digit terminal address (e.g. 582-914).', 'warning');
+      if (code.length !== 9) {
+        await this.showCustomAlert('Invalid Address', 'Please enter a valid 9-digit terminal address (e.g. 582-914-307).', 'warning');
         return;
       }
       this.requestConnection(code);
     });
 
-    // Format input as XXX-XXX
-    this.dom.remoteCodeInput.addEventListener('input', (e) => {
-      let val = e.target.value.replace(/\D/g, '');
-      if (val.length > 3) {
-        val = `${val.slice(0, 3)}-${val.slice(3, 6)}`;
-      }
-      e.target.value = val;
-    });
+    // Format inputs as XXX-XXX-XXX
+    this.attachCodeInputMask(this.dom.remoteCodeInput);
+    this.attachCodeInputMask(this.dom.workstationCodeInput);
 
     // Settings Navigation Tabs
     if (this.dom.settingsNavItems) {
@@ -924,8 +994,8 @@ class PrimeDeskApp {
       const code = this.dom.workstationCodeInput.value.replace(/\D/g, '');
       const pass = this.dom.workstationPasswordInput.value.trim();
 
-      if (!name || code.length !== 6) {
-        await this.showCustomAlert('Validation Error', 'Please specify a valid workstation name and 6-digit terminal address.', 'warning');
+      if (!name || code.length !== 9) {
+        await this.showCustomAlert('Validation Error', 'Please specify a valid workstation name and 9-digit terminal address.', 'warning');
         return;
       }
 
@@ -947,12 +1017,13 @@ class PrimeDeskApp {
     });
 
     // Unattended Password Prompt Modal
-    this.dom.closePassPromptBtn.addEventListener('click', () => {
+    const cancelPasswordPrompt = () => {
       this.dom.passwordPromptModal.style.display = 'none';
-    });
-    this.dom.cancelPassPromptBtn.addEventListener('click', () => {
-      this.dom.passwordPromptModal.style.display = 'none';
-    });
+      this.dom.targetUnattendedPassInput.value = '';
+      this.endSession();
+    };
+    this.dom.closePassPromptBtn.addEventListener('click', cancelPasswordPrompt);
+    this.dom.cancelPassPromptBtn.addEventListener('click', cancelPasswordPrompt);
     this.dom.submitPassPromptBtn.addEventListener('click', async () => {
       const pass = this.dom.targetUnattendedPassInput.value.trim();
       if (!pass) return;
@@ -1072,9 +1143,13 @@ class PrimeDeskApp {
     });
 
     document.querySelectorAll('.connect-workstation-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const code = e.currentTarget.getAttribute('data-code');
+      btn.addEventListener('click', async (e) => {
+        const code = (e.currentTarget.getAttribute('data-code') || '').replace(/\D/g, '');
         const savedPass = e.currentTarget.getAttribute('data-pass');
+        if (code.length !== 9) {
+          await this.showCustomAlert('Legacy Address', 'This saved workstation uses an older 6-digit address. Please remove it and save its new 9-digit address.', 'warning');
+          return;
+        }
         this.requestConnection(code, savedPass);
       });
     });
@@ -1139,7 +1214,7 @@ class PrimeDeskApp {
       try { oldWs.close(); } catch (e) {}
     }
 
-    const isCloud = this.signalingUrl.includes('onrender.com') || this.serverMode === 'cloud';
+    const isCloud = this.isCloudMode();
     this.updateServerStatus('connecting', isCloud ? 'Connecting to Cloud...' : 'Connecting to LAN...');
 
     let probeNote = null;
@@ -1177,7 +1252,7 @@ class PrimeDeskApp {
     if (attemptId !== this.signalingAttemptId) return;
 
     try {
-      const ws = new WebSocket(this.signalingUrl);
+      const ws = new WebSocket(this.buildSignalingUrl('host', this.myCode, this.deviceToken));
       this.ws = ws;
 
       this.wsConnectTimeoutTimer = setTimeout(() => {
@@ -1210,12 +1285,12 @@ class PrimeDeskApp {
         this.updateServerStatus('connected', isCloud ? 'Cloud Online' : 'Signaling: Online');
         this.registerHostOnServer();
 
-        // Keep WebSocket tunnel alive through proxies and Cloudflare/Render idle timeouts
+        // Keep WebSocket tunnel alive through proxies; exact JSON matches Cloudflare DO auto-response
         this.wsKeepaliveTimer = setInterval(() => {
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            try { this.ws.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
+            try { this.ws.send('{"type":"ping"}'); } catch (e) {}
           }
-        }, 25000);
+        }, 45000);
       };
 
       ws.onmessage = (event) => {
@@ -1223,7 +1298,7 @@ class PrimeDeskApp {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'pong') return;
-          this.handleSignalingMessage(msg);
+          this.handleSignalingMessage(msg, 'host');
         } catch (e) {
           console.error('[Signaling] Message error:', e);
         }
@@ -1312,17 +1387,40 @@ class PrimeDeskApp {
 
   registerHostOnServer() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'register-host', code: this.myCode }));
+      this.ws.send(JSON.stringify({
+        type: 'register-host',
+        code: this.myCode,
+        token: this.deviceToken
+      }));
     }
   }
 
-  handleSignalingMessage(msg) {
+  handleSignalingMessage(msg, source = 'host') {
     switch (msg.type) {
       case 'registered':
-        console.log(`[Terminal] Registered address: ${msg.code}`);
+        this.codeCollisionRetries = 0;
+        if (msg.code && msg.code !== this.myCode) {
+          this.myCode = msg.code;
+          localStorage.setItem('primedesk_device_id', this.myCode);
+          if (this.dom.mySessionCode) {
+            this.dom.mySessionCode.textContent = this.formatCode(this.myCode);
+          }
+        }
+        console.log(`[Terminal] Registered address: ${this.myCode}`);
+        break;
+
+      case 'code-taken':
+        if (source !== 'host') break;
+        console.warn('[Terminal] Generated address is active elsewhere; rotating 9-digit ID...');
+        this.rotateDeviceId();
+        if (this.codeCollisionRetries < 5) {
+          this.codeCollisionRetries++;
+          this.connectSignaling();
+        }
         break;
 
       case 'incoming-connection':
+        if (source !== 'host') break;
         console.log('[Host] Incoming connection request received');
         if (this.unattendedEnabled && this.unattendedPassHash) {
           // If unattended access active, check password or request auth
@@ -1335,28 +1433,29 @@ class PrimeDeskApp {
         break;
 
       case 'connection-accepted':
+        if (source !== 'viewer') break;
         console.log('[Viewer] Remote device accepted connection. Initializing peer...');
         this.showConnectingOverlay(this.pendingConnectCode, 'Connection Approved', 'Establishing encrypted display & control channels...');
         this.startViewerPeer();
         break;
 
       case 'connection-declined':
+        if (source !== 'viewer') break;
         this.hideConnectingOverlay();
-        this.showCustomAlert('Connection Rejected', `Session declined: ${msg.reason || 'Declined by remote user'}`, 'warning');
         this.endSession();
+        this.showCustomAlert('Connection Rejected', `Session declined: ${msg.reason || 'Declined by remote user'}`, 'warning');
         break;
 
       case 'signal':
-        this.handlePeerSignal(msg.data);
+        if ((source === 'viewer' && this.role === 'viewer') || (source === 'host' && this.role !== 'viewer')) {
+          this.handlePeerSignal(msg.data);
+        }
         break;
 
       case 'session-ended': {
-        const wasActive = Boolean(
-          this.role || this.pendingConnectCode || this.peerConnection || this.dom.remoteViewport.style.display !== 'none'
-        );
-        this.hideConnectingOverlay();
-        if (this.dom.fileManagerModal) this.dom.fileManagerModal.style.display = 'none';
-        if (wasActive) {
+        if ((source === 'host' && this.role === 'host') || (source === 'viewer' && this.role === 'viewer')) {
+          this.hideConnectingOverlay();
+          if (this.dom.fileManagerModal) this.dom.fileManagerModal.style.display = 'none';
           this.endSession();
           this.showCustomAlert('Session Concluded', `Remote session ended: ${msg.reason || 'Disconnected'}`, 'info');
         }
@@ -1364,10 +1463,11 @@ class PrimeDeskApp {
       }
 
       case 'error':
-        this.hideConnectingOverlay();
-        if (this.role === 'viewer' && this.dom.remoteViewport.style.display === 'none') {
+        if (source === 'viewer') {
+          this.hideConnectingOverlay();
           this.role = null;
           this.pendingConnectCode = null;
+          this.closeViewerSocket(false);
         }
         this.showCustomAlert('Signaling Notice', msg.message, 'warning');
         break;
@@ -1771,22 +1871,39 @@ class PrimeDeskApp {
     this.registerHostOnServer();
   }
 
+  closeViewerSocket(sendLeave = false) {
+    if (this.viewerWsKeepaliveTimer) {
+      clearInterval(this.viewerWsKeepaliveTimer);
+      this.viewerWsKeepaliveTimer = null;
+    }
+    if (!this.viewerWs) return;
+    const sock = this.viewerWs;
+    this.viewerWs = null;
+    sock.onopen = null;
+    sock.onmessage = null;
+    sock.onclose = null;
+    sock.onerror = null;
+    if (sendLeave && sock.readyState === WebSocket.OPEN) {
+      try { sock.send(JSON.stringify({ type: 'leave' })); } catch (e) {}
+    }
+    try { sock.close(); } catch (e) {}
+  }
+
   // VIEWER INITIATION
   async requestConnection(code, savedPass = null) {
-    this.role = 'viewer';
-    this.pendingConnectCode = code;
-    this.savedPass = savedPass;
+    const cleanCode = (code || '').replace(/\D/g, '');
+    if (cleanCode.length !== 9) {
+      await this.showCustomAlert('Invalid Address', 'Please enter a valid 9-digit terminal address.', 'warning');
+      return;
+    }
+    if (cleanCode === this.myCode) {
+      await this.showCustomAlert('Invalid Target', 'Cannot connect a terminal to its own address.', 'warning');
+      return;
+    }
 
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.showConnectingOverlay(code, 'Connecting to Remote PC...', 'Sending connection request. Waiting for remote approval...');
-      this.ws.send(JSON.stringify({
-        type: 'request-connect',
-        code,
-        clientName: 'Support Technician'
-      }));
-    } else {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.role = null;
-      const isCloud = this.signalingUrl.includes('onrender.com') || this.serverMode === 'cloud';
+      const isCloud = this.isCloudMode();
       const diag = this.lastConnectionDiagnostic;
       this.connectSignaling();
       if (isCloud && diag && diag.details) {
@@ -1804,6 +1921,78 @@ class PrimeDeskApp {
           'warning'
         );
       }
+      return;
+    }
+
+    this.closeViewerSocket(false);
+    this.role = 'viewer';
+    this.pendingConnectCode = cleanCode;
+    this.savedPass = savedPass;
+    this.showConnectingOverlay(cleanCode, 'Connecting to Remote PC...', 'Sending connection request. Waiting for remote approval...');
+
+    try {
+      const vws = new WebSocket(this.buildSignalingUrl('viewer', cleanCode));
+      this.viewerWs = vws;
+
+      const connectTimer = setTimeout(() => {
+        if (this.viewerWs === vws && vws.readyState === WebSocket.CONNECTING) {
+          this.hideConnectingOverlay();
+          this.role = null;
+          this.pendingConnectCode = null;
+          this.closeViewerSocket(false);
+          this.showCustomAlert('Connection Timeout', 'Timed out reaching the remote terminal room.', 'warning');
+        }
+      }, 12000);
+
+      vws.onopen = () => {
+        clearTimeout(connectTimer);
+        if (this.viewerWs !== vws) return;
+        vws.send(JSON.stringify({
+          type: 'request-connect',
+          code: cleanCode,
+          clientName: 'Support Technician'
+        }));
+        this.viewerWsKeepaliveTimer = setInterval(() => {
+          if (this.viewerWs === vws && vws.readyState === WebSocket.OPEN) {
+            try { vws.send('{"type":"ping"}'); } catch (e) {}
+          }
+        }, 45000);
+      };
+
+      vws.onmessage = (event) => {
+        if (this.viewerWs !== vws) return;
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'pong') return;
+          this.handleSignalingMessage(msg, 'viewer');
+        } catch (e) {
+          console.error('[Signaling] Viewer message error:', e);
+        }
+      };
+
+      vws.onclose = () => {
+        clearTimeout(connectTimer);
+        if (this.viewerWs !== vws) return;
+        this.closeViewerSocket(false);
+        if (this.role === 'viewer') {
+          const overlayOpen = this.dom.connectingOverlay && this.dom.connectingOverlay.style.display === 'flex';
+          this.hideConnectingOverlay();
+          this.endSession();
+          if (overlayOpen) {
+            this.showCustomAlert('Connection Closed', 'Signaling channel to the remote terminal closed.', 'warning');
+          }
+        }
+      };
+
+      vws.onerror = () => {
+        clearTimeout(connectTimer);
+      };
+    } catch (err) {
+      this.hideConnectingOverlay();
+      this.role = null;
+      this.pendingConnectCode = null;
+      this.closeViewerSocket(false);
+      await this.showCustomAlert('Connection Error', err.message, 'warning');
     }
   }
 
@@ -1887,6 +2076,7 @@ class PrimeDeskApp {
     if (data.type === 'auth-response') {
       if (data.hash === this.unattendedPassHash) {
         console.log('[Host] Unattended access authorized. Starting stream...');
+        this.role = 'host';
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'accept-connection' }));
         }
@@ -1922,8 +2112,9 @@ class PrimeDeskApp {
   }
 
   sendSignal(data) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'signal', data }));
+    const sock = (this.role === 'viewer') ? this.viewerWs : this.ws;
+    if (sock && sock.readyState === WebSocket.OPEN) {
+      sock.send(JSON.stringify({ type: 'signal', data }));
     }
   }
 
@@ -2796,6 +2987,14 @@ class PrimeDeskApp {
   }
 
   async openFileManager() {
+    if (this.peerConnection && (!this.fileChannel || !this.fileOpsChannel || this.fileChannel.readyState !== 'open' || this.fileOpsChannel.readyState !== 'open')) {
+      for (let i = 0; i < 20; i++) {
+        if (this.fileChannel && this.fileOpsChannel && this.fileChannel.readyState === 'open' && this.fileOpsChannel.readyState === 'open') {
+          break;
+        }
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
     if (!this.fileChannel || this.fileChannel.readyState !== 'open' || !this.fileOpsChannel || this.fileOpsChannel.readyState !== 'open') {
       await this.showCustomAlert('Not Connected', 'File manager requires an active remote session.', 'warning');
       return;
@@ -3003,9 +3202,7 @@ class PrimeDeskApp {
     if (this.role === 'host') {
       this.stopHosting();
     } else {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'leave' }));
-      }
+      this.closeViewerSocket(true);
       this.role = null;
       this.pendingConnectCode = null;
       this.clearSessionChannels();
@@ -3013,7 +3210,6 @@ class PrimeDeskApp {
       this.dom.remoteViewport.style.display = 'none';
       this.dom.dashboardView.style.display = 'flex';
       if (document.fullscreenElement) document.exitFullscreen();
-      this.registerHostOnServer();
     }
   }
 }

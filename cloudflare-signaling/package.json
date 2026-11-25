@@ -1,0 +1,14 @@
+{
+  "name": "primedesk-cloudflare-signaling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Always-on Cloudflare Workers + Durable Objects WebSocket Hibernation signaling server for PrimeDesk",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
