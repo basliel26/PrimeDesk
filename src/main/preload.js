@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('primeDeskAPI', {
   sendInput: (command) => ipcRenderer.invoke('send-input', command),
   startInputWorker: () => ipcRenderer.invoke('start-input-worker'),
   stopInputWorker: () => ipcRenderer.invoke('stop-input-worker'),
+  onInputStatus: (cb) => {
+    const handler = (_, status) => cb(status);
+    ipcRenderer.on('input-status', handler);
+    return () => ipcRenderer.removeListener('input-status', handler);
+  },
   setPillMode: () => ipcRenderer.invoke('set-pill-mode'),
   restoreNormalMode: () => ipcRenderer.invoke('restore-normal-mode'),
   readClipboard: () => ipcRenderer.invoke('read-clipboard'),

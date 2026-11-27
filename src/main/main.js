@@ -219,6 +219,11 @@ ipcMain.handle('get-local-ips', () => {
 });
 
 ipcMain.handle('start-input-worker', () => {
+  inputHandler.setStatusCallback((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('input-status', status);
+    }
+  });
   inputHandler.start();
   return true;
 });

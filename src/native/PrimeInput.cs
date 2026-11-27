@@ -22,6 +22,89 @@ namespace PrimeDesk
         [DllImport("user32.dll")]
         static extern bool LockWorkStation();
 
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool CloseDesktop(IntPtr hDesktop);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool CloseHandle(IntPtr hObject);
+
+        const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        const uint TOKEN_QUERY = 0x0008;
+        const uint DESKTOP_WRITEOBJECTS = 0x0080;
+
+        static long _lastBlockReportMs = 0;
+
+        static void CheckAndReportInputBlock(bool cursorCallSucceeded)
+        {
+            long now = Stopwatch.GetTimestamp() / (Stopwatch.Frequency / 1000);
+            if (now - _lastBlockReportMs < 3500) return;
+
+            IntPtr hDesk = OpenInputDesktop(0, false, DESKTOP_WRITEOBJECTS);
+            if (hDesk == IntPtr.Zero)
+            {
+                _lastBlockReportMs = now;
+                Console.WriteLine("PRIMEDESK_INPUT_BLOCKED SECURE_DESKTOP");
+                Console.Out.Flush();
+                return;
+            }
+            CloseDesktop(hDesk);
+
+            IntPtr fg = GetForegroundWindow();
+            if (fg != IntPtr.Zero)
+            {
+                uint pid = 0;
+                GetWindowThreadProcessId(fg, out pid);
+                if (pid != 0)
+                {
+                    IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+                    if (hProc == IntPtr.Zero)
+                    {
+                        if (Marshal.GetLastWin32Error() == 5)
+                        {
+                            _lastBlockReportMs = now;
+                            Console.WriteLine("PRIMEDESK_INPUT_BLOCKED UIPI");
+                            Console.Out.Flush();
+                        }
+                        return;
+                    }
+                    IntPtr hToken = IntPtr.Zero;
+                    bool tokOk = OpenProcessToken(hProc, TOKEN_QUERY, out hToken);
+                    int err = Marshal.GetLastWin32Error();
+                    if (hToken != IntPtr.Zero) CloseHandle(hToken);
+                    CloseHandle(hProc);
+                    if (!tokOk && err == 5)
+                    {
+                        _lastBlockReportMs = now;
+                        Console.WriteLine("PRIMEDESK_INPUT_BLOCKED UIPI");
+                        Console.Out.Flush();
+                        return;
+                    }
+                }
+            }
+
+            if (!cursorCallSucceeded)
+            {
+                _lastBlockReportMs = now;
+                Console.WriteLine("PRIMEDESK_INPUT_BLOCKED UIPI");
+                Console.Out.Flush();
+            }
+        }
+
         const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         const uint MOUSEEVENTF_LEFTUP = 0x0004;
         const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
@@ -60,6 +143,7 @@ namespace PrimeDesk
                     }
                     else if (cmd == "D")
                     {
+                        CheckAndReportInputBlock(true);
                         string btn = parts.Length > 1 ? parts[1].ToLower() : "left";
                         if (btn == "left") mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
                         else if (btn == "right") mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
@@ -86,6 +170,7 @@ namespace PrimeDesk
                     }
                     else if (cmd == "KD" && parts.Length >= 2)
                     {
+                        CheckAndReportInputBlock(true);
                         byte vk = byte.Parse(parts[1]);
                         byte scan = (byte)MapVirtualKey(vk, 0);
                         keybd_event(vk, scan, 0, 0);

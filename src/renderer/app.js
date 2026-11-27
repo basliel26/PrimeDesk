@@ -106,7 +106,11 @@ class PrimeDeskApp {
     // In-Session Features State
     this.unreadChatCount = 0;
     this.pingInterval = null;
+    this.pingChannelBound = null;
     this.clipboardPollInterval = null;
+    this.clipboardChannelStartedFor = null;
+    this.viewerTrackInitialized = false;
+    this.remotePermControl = true;
     this.lastCopiedText = '';
     this.lastCopiedFilesKey = '';
     this.lastInjectedFileClipSig = '';
@@ -661,6 +665,10 @@ class PrimeDeskApp {
       remoteViewport: document.getElementById('remoteViewport'),
       remoteVideo: document.getElementById('remoteVideo'),
       remoteSessionTitle: document.getElementById('remoteSessionTitle'),
+      remoteAccessBadge: document.getElementById('remoteAccessBadge'),
+      remoteInputNoticeBanner: document.getElementById('remoteInputNoticeBanner'),
+      remoteInputNoticeText: document.getElementById('remoteInputNoticeText'),
+      dismissInputNoticeBtn: document.getElementById('dismissInputNoticeBtn'),
       fitScreenBtn: document.getElementById('fitScreenBtn'),
       fitBtnText: document.getElementById('fitBtnText'),
       fileManagerBtn: document.getElementById('fileManagerBtn'),
@@ -959,6 +967,18 @@ class PrimeDeskApp {
     if (window.primeDeskAPI && window.primeDeskAPI.onClipFilesChanged) {
       window.primeDeskAPI.onClipFilesChanged((payload) => {
         this.handleLocalClipboardFilesChanged((payload && payload.files) || []);
+      });
+    }
+    if (window.primeDeskAPI && window.primeDeskAPI.onInputStatus) {
+      window.primeDeskAPI.onInputStatus((status) => {
+        if (this.role === 'host' && status && status.blocked && this.inputChannel && this.inputChannel.readyState === 'open') {
+          try { this.inputChannel.send(`INPUT_BLOCKED ${status.reason || 'UIPI'}`); } catch (e) {}
+        }
+      });
+    }
+    if (this.dom.dismissInputNoticeBtn) {
+      this.dom.dismissInputNoticeBtn.addEventListener('click', () => {
+        if (this.dom.remoteInputNoticeBanner) this.dom.remoteInputNoticeBanner.style.display = 'none';
       });
     }
 
@@ -2061,13 +2081,38 @@ class PrimeDeskApp {
 
   clearSessionChannels() {
     this.clearPeerDisconnectTimer();
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    this.pingChannelBound = null;
+    this.clipboardChannelStartedFor = null;
+    this.viewerTrackInitialized = false;
+    this.remotePermControl = true;
     this.peerEverConnected = false;
     this.savedPass = null;
     this.recordedCurrentSession = false;
     this.pendingIceCandidates = [];
     this.viewerPeerReadyPromise = null;
     this.videoSender = null;
-    if (this.inputChannel) this.inputChannel.onclose = null;
+    if (this.dom && this.dom.remoteAccessBadge) {
+      this.dom.remoteAccessBadge.style.display = 'none';
+    }
+    if (this.dom && this.dom.remoteInputNoticeBanner) {
+      this.dom.remoteInputNoticeBanner.style.display = 'none';
+    }
+    if (this.dom && this.dom.remoteVideo) {
+      this.dom.remoteVideo.style.cursor = '';
+    }
+    if (this.inputChannel) {
+      this.inputChannel.onopen = null;
+      this.inputChannel.onmessage = null;
+      this.inputChannel.onclose = null;
+    }
+    if (this.clipboardChannel) {
+      this.clipboardChannel.onopen = null;
+      this.clipboardChannel.onmessage = null;
+    }
     if (this.fileChannel) {
       this.fileChannel.onclose = null;
       this.fileChannel.onerror = null;
@@ -2258,7 +2303,24 @@ class PrimeDeskApp {
   }
 
   setupHostInputChannel(dc) {
-    dc.onopen = () => console.log('[Host] Input DataChannel Open');
+    const sendHostCaps = () => {
+      if (dc.readyState === 'open') {
+        try {
+          dc.send(`CAPS ${JSON.stringify({
+            permControl: this.permControl,
+            permClipboard: this.permClipboard,
+            permFile: this.permFile
+          })}`);
+        } catch (e) {}
+      }
+    };
+    dc.onopen = () => {
+      console.log('[Host] Input DataChannel Open');
+      sendHostCaps();
+    };
+    if (dc.readyState === 'open') {
+      sendHostCaps();
+    }
     dc.onclose = () => {
       if (this.role === 'host' && dc === this.inputChannel) {
         console.warn('[Host] Input DataChannel closed by peer; restoring window');
@@ -2417,10 +2479,16 @@ class PrimeDeskApp {
   }
 
   setupClipboardChannel(dc) {
-    dc.onopen = () => {
+    const onChannelOpen = () => {
       console.log('[Clipboard] Sync Channel Open');
+      this.lastCopiedText = '';
+      this.lastCopiedFilesKey = '';
       this.startClipboardPolling();
     };
+    dc.onopen = onChannelOpen;
+    if (dc.readyState === 'open') {
+      onChannelOpen();
+    }
     dc.onmessage = async (event) => {
       if (!this.permClipboard) return;
       try {
@@ -2470,7 +2538,12 @@ class PrimeDeskApp {
   }
 
   startClipboardPolling() {
+    const activeChan = this.clipboardChannel || null;
+    if (this.clipboardPollInterval && this.clipboardChannelStartedFor === activeChan) {
+      return;
+    }
     this.stopClipboardPolling();
+    this.clipboardChannelStartedFor = activeChan;
     this.clipboardPollInterval = setInterval(async () => {
       if (!this.permClipboard) return;
       if (window.primeDeskAPI && this.clipboardChannel && this.clipboardChannel.readyState === 'open') {
@@ -2495,6 +2568,9 @@ class PrimeDeskApp {
       clearInterval(this.clipboardPollInterval);
       this.clipboardPollInterval = null;
     }
+    this.clipboardChannelStartedFor = null;
+    this.lastCopiedText = '';
+    this.lastCopiedFilesKey = '';
     this.lastInjectedFileClipSig = '';
     this.lastSyncedOutFileClipSig = '';
     this.remoteClipSyncedAckSig = '';
@@ -2698,27 +2774,33 @@ class PrimeDeskApp {
       };
 
       this.peerConnection.ontrack = (event) => {
-        console.log('[Viewer] Remote video track received');
-        this.dom.remoteVideo.srcObject = event.streams[0];
-        this.showConnectingOverlay(this.pendingConnectCode, 'Establishing Media Tunnel...', 'Negotiating direct / relay video stream...');
-        this.dom.remoteVideo.addEventListener('loadeddata', () => this.revealViewerViewport(), { once: true });
-        if (this.peerConnection && (this.peerConnection.connectionState === 'connected' || this.peerConnection.iceConnectionState === 'connected')) {
-          this.revealViewerViewport();
+        console.log('[Viewer] Remote media track received:', event.track && event.track.kind);
+        if (event.streams && event.streams[0]) {
+          this.dom.remoteVideo.srcObject = event.streams[0];
+        }
+        if (this.dom.remoteViewport.style.display === 'none') {
+          this.showConnectingOverlay(this.pendingConnectCode, 'Establishing Media Tunnel...', 'Negotiating direct / relay video stream...');
+          this.dom.remoteVideo.addEventListener('loadeddata', () => this.revealViewerViewport(), { once: true });
+          if (this.peerConnection && (this.peerConnection.connectionState === 'connected' || this.peerConnection.iceConnectionState === 'connected')) {
+            this.revealViewerViewport();
+          }
         }
 
-        if (this.autoRecord) {
-          this.startSessionRecording(event.streams[0]);
+        if (!this.viewerTrackInitialized) {
+          this.viewerTrackInitialized = true;
+          if (this.autoRecord && event.streams && event.streams[0]) {
+            this.startSessionRecording(event.streams[0]);
+          }
+          this.appendAuditLog('session-connected-viewer');
+          this.startPingMonitor();
+          this.startClipboardPolling();
         }
-        this.appendAuditLog('session-connected-viewer');
-
-        this.startPingMonitor();
-        this.startClipboardPolling();
       };
 
       this.peerConnection.ondatachannel = (e) => {
         if (e.channel.label === 'input') {
           this.inputChannel = e.channel;
-          this.inputChannel.onopen = () => console.log('[Viewer] Input Channel Open');
+          this.setupViewerInputChannel(this.inputChannel);
         } else if (e.channel.label === 'chat') {
           this.chatChannel = e.channel;
           this.setupChatChannel(this.chatChannel);
@@ -2737,20 +2819,60 @@ class PrimeDeskApp {
     return this.viewerPeerReadyPromise;
   }
 
-  startPingMonitor() {
-    let lastPing = performance.now();
-    if (this.inputChannel) {
-      this.inputChannel.onmessage = (e) => {
-        if (e.data === 'PONG') {
-          const rtt = Math.round(performance.now() - lastPing);
-          this.dom.remoteStats.textContent = `${rtt} ms | ${this.targetFps || 30} FPS`;
+  setupViewerInputChannel(dc) {
+    if (!dc || this.pingChannelBound === dc) return;
+    this.pingChannelBound = dc;
+    dc.onopen = () => console.log('[Viewer] Input Channel Open');
+    dc.onmessage = (e) => {
+      if (e.data === 'PONG') {
+        const rtt = Math.round(performance.now() - (this.lastPingSentAt || performance.now()));
+        this.dom.remoteStats.textContent = `${rtt} ms | ${this.targetFps || 30} FPS`;
+        return;
+      }
+      if (typeof e.data === 'string' && e.data.startsWith('CAPS ')) {
+        try {
+          const caps = JSON.parse(e.data.slice(5));
+          this.remotePermControl = caps.permControl !== false;
+          if (this.dom.remoteAccessBadge) {
+            this.dom.remoteAccessBadge.style.display = this.remotePermControl ? 'none' : 'inline-flex';
+          }
+          if (this.dom.remoteVideo) {
+            this.dom.remoteVideo.style.cursor = this.remotePermControl ? '' : 'not-allowed';
+          }
+          if (!this.remotePermControl && this.dom.remoteInputNoticeBanner && this.dom.remoteInputNoticeText) {
+            this.dom.remoteInputNoticeText.textContent = 'View-Only Mode: Remote mouse & keyboard control is disabled in Host Security settings.';
+            this.dom.remoteInputNoticeBanner.style.display = 'flex';
+          } else if (this.remotePermControl && this.dom.remoteInputNoticeBanner) {
+            this.dom.remoteInputNoticeBanner.style.display = 'none';
+          }
+        } catch (err) {}
+        return;
+      }
+      if (typeof e.data === 'string' && e.data.startsWith('INPUT_BLOCKED ')) {
+        const reason = e.data.split(' ')[1] || 'UIPI';
+        if (this.dom.remoteInputNoticeBanner && this.dom.remoteInputNoticeText) {
+          this.dom.remoteInputNoticeText.textContent = reason === 'SECURE_DESKTOP'
+            ? 'Remote PC is on the Windows Lock / UAC screen — unlock the host desktop or run PrimeDesk as Administrator to control it.'
+            : 'Focused window on the host PC requires Administrator rights — run PrimeDesk as Administrator on the host or minimize the elevated window.';
+          this.dom.remoteInputNoticeBanner.style.display = 'flex';
         }
-      };
+      }
+    };
+  }
+
+  startPingMonitor() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    this.lastPingSentAt = performance.now();
+    if (this.inputChannel) {
+      this.setupViewerInputChannel(this.inputChannel);
     }
 
     this.pingInterval = setInterval(() => {
       if (this.inputChannel && this.inputChannel.readyState === 'open') {
-        lastPing = performance.now();
+        this.lastPingSentAt = performance.now();
         this.inputChannel.send('PING');
       }
     }, 2500);

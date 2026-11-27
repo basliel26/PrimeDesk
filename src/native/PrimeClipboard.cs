@@ -33,16 +33,29 @@ namespace PrimeDesk
             return sb.ToString();
         }
 
-        static StringCollection ReadDropListSafe()
+        static StringCollection ReadDropListSafe(out bool locked)
         {
-            try
+            locked = false;
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                if (Clipboard.ContainsFileDropList())
+                try
                 {
-                    return Clipboard.GetFileDropList();
+                    if (Clipboard.ContainsFileDropList())
+                    {
+                        return Clipboard.GetFileDropList();
+                    }
+                    return null;
+                }
+                catch (ExternalException)
+                {
+                    locked = true;
+                    Thread.Sleep(25);
+                }
+                catch
+                {
+                    return null;
                 }
             }
-            catch { }
             return null;
         }
 
@@ -70,7 +83,8 @@ namespace PrimeDesk
 
             uint lastSeq = GetClipboardSequenceNumber();
             string prevKey = "";
-            StringCollection initial = ReadDropListSafe();
+            bool initLocked = false;
+            StringCollection initial = ReadDropListSafe(out initLocked);
             if (initial != null && initial.Count > 0)
             {
                 StringBuilder initKey = new StringBuilder();
@@ -105,9 +119,16 @@ namespace PrimeDesk
 
                 uint seq = GetClipboardSequenceNumber();
                 if (seq == lastSeq) continue;
+
+                bool clipLocked = false;
+                StringCollection files = ReadDropListSafe(out clipLocked);
+                if (clipLocked)
+                {
+                    // Explorer may hold OpenClipboard briefly; retry on next tick without dropping seq
+                    continue;
+                }
                 lastSeq = seq;
 
-                StringCollection files = ReadDropListSafe();
                 StringBuilder keyBuilder = new StringBuilder();
                 StringBuilder jsonBuilder = new StringBuilder();
                 jsonBuilder.Append("{\"seq\":").Append(seq).Append(",\"files\":[");
@@ -154,25 +175,33 @@ namespace PrimeDesk
             }
             if (cmd == "GET_FILES")
             {
-                try
+                for (int attempt = 0; attempt < 3; attempt++)
                 {
-                    if (Clipboard.ContainsFileDropList())
+                    try
                     {
-                        StringCollection files = Clipboard.GetFileDropList();
-                        foreach (string f in files)
+                        if (Clipboard.ContainsFileDropList())
                         {
-                            if (!string.IsNullOrEmpty(f))
+                            StringCollection files = Clipboard.GetFileDropList();
+                            foreach (string f in files)
                             {
-                                Console.WriteLine(f);
+                                if (!string.IsNullOrEmpty(f))
+                                {
+                                    Console.WriteLine(f);
+                                }
                             }
                         }
+                        return 0;
                     }
-                    return 0;
+                    catch (ExternalException)
+                    {
+                        Thread.Sleep(35);
+                    }
+                    catch
+                    {
+                        return 2;
+                    }
                 }
-                catch
-                {
-                    return 2;
-                }
+                return 2;
             }
             else if (cmd == "SET_FILES")
             {

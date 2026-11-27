@@ -7,9 +7,18 @@ class InputHandler {
   constructor() {
     this.process = null;
     this.isReady = false;
+    this.active = false;
+    this.statusCallback = null;
+    this.pendingCommands = [];
+  }
+
+  setStatusCallback(cb) {
+    this.statusCallback = typeof cb === 'function' ? cb : null;
   }
 
   start() {
+    this.stop();
+    this.active = true;
     let exePath = path.join(__dirname, '..', 'native', 'PrimeInput.exe');
     if (app && app.isPackaged) {
       exePath = path.join(process.resourcesPath, 'native', 'PrimeInput.exe');
@@ -22,25 +31,50 @@ class InputHandler {
     }
 
     try {
-      this.process = spawn(exePath, [], {
+      const child = spawn(exePath, [], {
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe']
       });
+      this.process = child;
 
-      this.process.stdout.on('data', (data) => {
-        const msg = data.toString();
-        if (msg.includes('PRIMEDESK_INPUT_READY')) {
-          this.isReady = true;
-          console.log('[PrimeInput] Native input worker ready');
+      let outBuf = '';
+      child.stdout.on('data', (data) => {
+        if (this.process !== child) return;
+        outBuf += data.toString();
+        let idx;
+        while ((idx = outBuf.indexOf('\n')) !== -1) {
+          const line = outBuf.slice(0, idx).trim();
+          outBuf = outBuf.slice(idx + 1);
+          if (!line) continue;
+          if (line.includes('PRIMEDESK_INPUT_READY')) {
+            this.isReady = true;
+            console.log('[PrimeInput] Native input worker ready');
+            while (this.pendingCommands.length > 0 && child.stdin && child.stdin.writable) {
+              const queued = this.pendingCommands.shift();
+              try { child.stdin.write(queued + '\n'); } catch (e) { break; }
+            }
+          } else if (line.startsWith('PRIMEDESK_INPUT_BLOCKED')) {
+            const reason = line.split(' ')[1] || 'UIPI';
+            if (this.statusCallback) {
+              this.statusCallback({ blocked: true, reason });
+            }
+          }
         }
       });
 
-      this.process.on('close', (code) => {
-        this.isReady = false;
+      child.on('close', (code) => {
+        if (this.process === child) {
+          this.process = null;
+          this.isReady = false;
+        }
         console.log(`[PrimeInput] Native input worker exited with code ${code}`);
       });
 
-      this.process.on('error', (err) => {
+      child.on('error', (err) => {
+        if (this.process === child) {
+          this.process = null;
+          this.isReady = false;
+        }
         console.error('[PrimeInput] Failed to start native input worker:', err);
       });
     } catch (e) {
@@ -49,19 +83,34 @@ class InputHandler {
   }
 
   send(command) {
-    if (this.process && this.process.stdin.writable) {
-      this.process.stdin.write(command.trim() + '\n');
+    const clean = String(command || '').trim();
+    if (!clean) return;
+    if (!this.process || !this.process.stdin || !this.process.stdin.writable) {
+      if (!this.active) return;
+      if (this.pendingCommands.length < 32) {
+        this.pendingCommands.push(clean);
+      }
+      this.start();
+      return;
     }
+    try {
+      this.process.stdin.write(clean + '\n');
+    } catch (e) {}
   }
 
   stop() {
+    this.active = false;
+    this.pendingCommands = [];
     if (this.process) {
-      try {
-        this.send('QUIT');
-        this.process.kill();
-      } catch (e) {}
+      const target = this.process;
       this.process = null;
       this.isReady = false;
+      try {
+        if (target.stdin && target.stdin.writable) {
+          target.stdin.write('QUIT\n');
+        }
+        target.kill();
+      } catch (e) {}
     }
   }
 }

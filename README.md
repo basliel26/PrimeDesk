@@ -50,8 +50,8 @@ Pre-compiled standalone Windows x64 binaries are built and published automatical
 
 📦 **[Download Latest PrimeDesk Release](https://github.com/basliel26/PrimeDesk/releases/latest)**
 
-- **`PrimeDesk-Setup-1.2.3.exe`** — Standard Windows installer with desktop shortcut, start menu entry, and optional startup launch.
-- **`PrimeDesk-Portable-1.2.3.exe`** — Single self-contained executable that runs directly from any folder or USB drive with zero installation (with persistent terminal IDs via `%APPDATA%\PrimeDesk`).
+- **`PrimeDesk-Setup-1.2.4.exe`** — Standard Windows installer with desktop shortcut, start menu entry, and optional startup launch.
+- **`PrimeDesk-Portable-1.2.4.exe`** — Single self-contained executable that runs directly from any folder or USB drive with zero installation (with persistent terminal IDs via `%APPDATA%\PrimeDesk`).
 
 ---
 

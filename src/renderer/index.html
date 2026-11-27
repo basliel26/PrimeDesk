@@ -329,6 +329,7 @@
           <span class="pulse-indicator"></span>
           <span class="toolbar-title" id="remoteSessionTitle">Connected to Terminal</span>
           <span class="stat-pill" id="remoteStats">0 ms | 60 FPS</span>
+          <span class="stat-pill view-only-pill" id="remoteAccessBadge" style="display: none;">View-Only</span>
           <span class="clipboard-indicator">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             Clipboard Synced
@@ -337,9 +338,9 @@
 
         <div class="toolbar-actions">
           <div class="dropdown-wrapper">
-            <button class="tool-btn" id="specialKeysBtn">
+            <button class="tool-btn" id="specialKeysBtn" title="Special Actions (Task Manager, Desktop, Lock)">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"></path></svg>
-              Actions
+              <span class="tool-label">Actions</span>
             </button>
             <div class="dropdown-menu" id="specialKeysMenu" style="display: none;">
               <button class="dropdown-item" id="keyTaskMgrBtn">Task Manager (Ctrl+Shift+Esc)</button>
@@ -350,22 +351,22 @@
 
           <button class="tool-btn" id="privacyToggleBtn" title="Black out physical remote monitor">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            <span id="privacyBtnText">Privacy: OFF</span>
+            <span class="tool-label" id="privacyBtnText">Privacy: OFF</span>
           </button>
 
           <button class="tool-btn" id="fitScreenBtn" title="Toggle Display Scale">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-            <span id="fitBtnText">Fit</span>
+            <span class="tool-label" id="fitBtnText">Fit</span>
           </button>
 
           <button class="tool-btn" id="fileManagerBtn" title="Open File Manager (Give & Take Files)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-            Files
+            <span class="tool-label">Files</span>
           </button>
 
           <button class="tool-btn" id="toggleChatBtn" title="Support Chat">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            Chat <span id="chatBadge" class="chat-badge" style="display: none;">0</span>
+            <span class="tool-label">Chat</span> <span id="chatBadge" class="chat-badge" style="display: none;">0</span>
           </button>
 
           <button class="tool-btn" id="fullscreenBtn" title="Toggle Fullscreen">
@@ -374,13 +375,17 @@
 
           <button class="tool-btn btn-danger" id="disconnectBtn" title="End Remote Session">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
-            Disconnect
+            <span class="tool-label disconnect-label">Disconnect</span>
           </button>
         </div>
       </div>
 
       <div class="viewport-content">
         <div class="video-wrapper" id="videoWrapper">
+          <div class="remote-input-notice" id="remoteInputNoticeBanner" style="display: none;">
+            <span id="remoteInputNoticeText">Remote input is currently restricted.</span>
+            <button class="btn btn-secondary btn-xs" id="dismissInputNoticeBtn">Dismiss</button>
+          </div>
           <video id="remoteVideo" autoplay playsinline></video>
           <div class="remote-clip-banner" id="remoteClipBanner" style="display: none;">
             <span id="remoteClipBannerText">Remote copied files (120 MB)</span>
@@ -870,7 +875,7 @@
                 </div>
                 <div class="about-details">
                   <h4>PrimeDesk Enterprise Remote Support Suite</h4>
-                  <p class="version-tag">Version 1.2.3 (Release Build) • Production Grade</p>
+                  <p class="version-tag">Version 1.2.4 (Release Build) • Production Grade</p>
                   <p class="arch-tag">x64 Native Architecture • Windows 10/11 / Windows Server</p>
                 </div>
               </div>

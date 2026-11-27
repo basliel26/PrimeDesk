@@ -1,7 +1,7 @@
 {
   "name": "primedesk",
   "productName": "PrimeDesk",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Fast, lightweight open-source AnyDesk alternative — P2P WebRTC remote desktop with dual-pane file transfer, Cloudflare TURN/LAN support, and clean Dark/Light UI",
   "main": "src/main/main.js",
   "scripts": {
