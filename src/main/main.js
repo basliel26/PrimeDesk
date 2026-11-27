@@ -429,6 +429,11 @@ ipcMain.handle('set-privacy-mode', (event, enabled) => {
         skipTaskbar: true,
         focusable: false
       });
+      // Hide curtain from desktopCapturer (WDA_EXCLUDEFROMCAPTURE on Win10 2004+/11) while letting technician clicks pass through
+      privacyWindow.setAlwaysOnTop(true, 'screen-saver');
+      privacyWindow.setIgnoreMouseEvents(true);
+      privacyWindow.setContentProtection(true);
+      try { privacyWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
       const privacyHtml = `
         <!DOCTYPE html>
         <html>
