@@ -109,6 +109,9 @@ class PrimeDeskApp {
     this.clipboardPollInterval = null;
     this.lastCopiedText = '';
     this.lastCopiedFilesKey = '';
+    this.lastInjectedFileClipSig = '';
+    this.lastSyncedOutFileClipSig = '';
+    this.remoteClipSyncedAckSig = '';
     this.privacyModeActive = false;
 
     // File Manager & Streaming Transfer State
@@ -130,6 +133,7 @@ class PrimeDeskApp {
     this.unattendedPassHash = localStorage.getItem('primedesk_unattended_hash') || '';
     this.pendingConnectCode = null;
     this.savedPass = null;
+    this.hostAuthFailCount = 0;
     this.recordedCurrentSession = false;
     this.editingDeviceId = null;
     this.deviceSearchQuery = '';
@@ -344,11 +348,25 @@ class PrimeDeskApp {
 
   loadOrCreateDeviceIdentity() {
     let code = localStorage.getItem('primedesk_device_id');
+    let token = localStorage.getItem('primedesk_device_secret');
+
+    if (window.primeDeskAPI && typeof window.primeDeskAPI.syncDeviceIdentity === 'function') {
+      try {
+        const synced = window.primeDeskAPI.syncDeviceIdentity({ code, token });
+        if (synced && /^\d{9}$/.test(synced.code) && synced.token) {
+          code = synced.code;
+          token = synced.token;
+          localStorage.setItem('primedesk_device_id', code);
+          localStorage.setItem('primedesk_device_secret', token);
+          return { code, token };
+        }
+      } catch (e) {}
+    }
+
     if (!code || !/^\d{9}$/.test(code)) {
       code = this.generateCode();
       localStorage.setItem('primedesk_device_id', code);
     }
-    let token = localStorage.getItem('primedesk_device_secret');
     if (!token) {
       token = this.generateDeviceToken();
       localStorage.setItem('primedesk_device_secret', token);
@@ -359,6 +377,11 @@ class PrimeDeskApp {
   rotateDeviceId() {
     this.myCode = this.generateCode();
     localStorage.setItem('primedesk_device_id', this.myCode);
+    if (window.primeDeskAPI && typeof window.primeDeskAPI.saveDeviceIdentity === 'function') {
+      try {
+        window.primeDeskAPI.saveDeviceIdentity({ code: this.myCode, token: this.deviceToken });
+      } catch (e) {}
+    }
     if (this.dom && this.dom.mySessionCode) {
       this.dom.mySessionCode.textContent = this.formatCode(this.myCode);
     }
@@ -619,6 +642,7 @@ class PrimeDeskApp {
       cancelPassPromptBtn: document.getElementById('cancelPassPromptBtn'),
       submitPassPromptBtn: document.getElementById('submitPassPromptBtn'),
       targetUnattendedPassInput: document.getElementById('targetUnattendedPassInput'),
+      passwordPromptError: document.getElementById('passwordPromptError'),
 
       // Floating pill
       floatingPillView: document.getElementById('floatingPillView'),
@@ -686,7 +710,9 @@ class PrimeDeskApp {
     this.dom.unattendedToggle.checked = this.unattendedEnabled;
     if (this.unattendedEnabled) {
       this.dom.unattendedInputBox.style.display = 'flex';
-      this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
+      this.dom.unattendedPasswordInput.placeholder = this.unattendedPassHash
+        ? '•••••• (Password active)'
+        : 'Set Unattended Password';
     }
 
     this.syncSettingsToUI();
@@ -731,6 +757,11 @@ class PrimeDeskApp {
 
     if (this.dom.unattendedToggleSettings) this.dom.unattendedToggleSettings.checked = this.unattendedEnabled;
     if (this.dom.unattendedPassRowSettings) this.dom.unattendedPassRowSettings.style.display = this.unattendedEnabled ? 'flex' : 'none';
+    if (this.dom.unattendedPasswordInputSettings) {
+      this.dom.unattendedPasswordInputSettings.placeholder = this.unattendedPassHash
+        ? '•••••• (Password active)'
+        : 'Enter master password';
+    }
 
     if (this.dom.permControlToggle) this.dom.permControlToggle.checked = this.permControl;
     if (this.dom.permClipboardToggle) this.dom.permClipboardToggle.checked = this.permClipboard;
@@ -741,6 +772,52 @@ class PrimeDeskApp {
     if (this.dom.autoRecordToggle) this.dom.autoRecordToggle.checked = this.autoRecord;
     if (this.dom.recordingDirInput) this.dom.recordingDirInput.value = this.recordingDir;
     if (this.dom.auditLogToggle) this.dom.auditLogToggle.checked = this.auditLog;
+  }
+
+  async saveUnattendedPassword(rawPass, { silent = false } = {}) {
+    const pass = (rawPass || '').trim();
+    if (!pass) {
+      if (!silent) {
+        await this.showCustomAlert('Input Required', 'Please enter an unattended master password.', 'warning');
+      }
+      return false;
+    }
+    this.unattendedPassHash = await this.hashPassword(pass);
+    localStorage.setItem('primedesk_unattended_hash', this.unattendedPassHash);
+    if (this.dom.unattendedPasswordInput) {
+      this.dom.unattendedPasswordInput.value = '';
+      this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
+    }
+    if (this.dom.unattendedPasswordInputSettings) {
+      this.dom.unattendedPasswordInputSettings.value = '';
+      this.dom.unattendedPasswordInputSettings.placeholder = '•••••• (Password active)';
+    }
+    if (!silent) {
+      await this.showCustomAlert('Password Saved', 'Unattended access master password has been securely saved.', 'success');
+    }
+    return true;
+  }
+
+  showPasswordPromptModal(errorMessage = '') {
+    this.hideConnectingOverlay();
+    if (this.dom.passwordPromptError) {
+      if (errorMessage) {
+        this.dom.passwordPromptError.textContent = errorMessage;
+        this.dom.passwordPromptError.style.display = 'block';
+      } else {
+        this.dom.passwordPromptError.textContent = '';
+        this.dom.passwordPromptError.style.display = 'none';
+      }
+    }
+    if (this.dom.targetUnattendedPassInput) {
+      this.dom.targetUnattendedPassInput.value = '';
+    }
+    if (this.dom.passwordPromptModal) {
+      this.dom.passwordPromptModal.style.display = 'flex';
+    }
+    setTimeout(() => {
+      if (this.dom.targetUnattendedPassInput) this.dom.targetUnattendedPassInput.focus();
+    }, 40);
   }
 
   bindEvents() {
@@ -764,24 +841,35 @@ class PrimeDeskApp {
       this.unattendedEnabled = e.target.checked;
       localStorage.setItem('primedesk_unattended_enabled', this.unattendedEnabled);
       this.dom.unattendedInputBox.style.display = this.unattendedEnabled ? 'flex' : 'none';
+      if (this.dom.unattendedToggleSettings) this.dom.unattendedToggleSettings.checked = this.unattendedEnabled;
+      if (this.dom.unattendedPassRowSettings) {
+        this.dom.unattendedPassRowSettings.style.display = this.unattendedEnabled ? 'flex' : 'none';
+      }
       if (!this.unattendedEnabled) {
         this.unattendedPassHash = '';
         localStorage.removeItem('primedesk_unattended_hash');
+        if (this.dom.unattendedPasswordInput) {
+          this.dom.unattendedPasswordInput.value = '';
+          this.dom.unattendedPasswordInput.placeholder = 'Set Unattended Password';
+        }
+        if (this.dom.unattendedPasswordInputSettings) {
+          this.dom.unattendedPasswordInputSettings.value = '';
+          this.dom.unattendedPasswordInputSettings.placeholder = 'Enter master password';
+        }
       }
     });
 
     this.dom.saveUnattendedPassBtn.addEventListener('click', async () => {
-      const pass = this.dom.unattendedPasswordInput.value.trim();
-      if (!pass) {
-        await this.showCustomAlert('Input Required', 'Please enter an unattended master password.', 'warning');
-        return;
-      }
-      this.unattendedPassHash = await this.hashPassword(pass);
-      localStorage.setItem('primedesk_unattended_hash', this.unattendedPassHash);
-      await this.showCustomAlert('Password Saved', 'Unattended access master password has been securely saved.', 'success');
-      this.dom.unattendedPasswordInput.value = '';
-      this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
+      await this.saveUnattendedPassword(this.dom.unattendedPasswordInput.value);
     });
+    if (this.dom.unattendedPasswordInput) {
+      this.dom.unattendedPasswordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.saveUnattendedPassword(this.dom.unattendedPasswordInput.value);
+        }
+      });
+    }
 
     // Copy code button
     this.dom.copyCodeBtn.addEventListener('click', () => {
@@ -868,6 +956,12 @@ class PrimeDeskApp {
       }
     });
 
+    if (window.primeDeskAPI && window.primeDeskAPI.onClipFilesChanged) {
+      window.primeDeskAPI.onClipFilesChanged((payload) => {
+        this.handleLocalClipboardFilesChanged((payload && payload.files) || []);
+      });
+    }
+
     // Connect Button
     this.dom.connectBtn.addEventListener('click', async () => {
       const code = this.dom.remoteCodeInput.value.replace(/\D/g, '');
@@ -936,6 +1030,14 @@ class PrimeDeskApp {
         if (!this.unattendedEnabled) {
           this.unattendedPassHash = '';
           localStorage.removeItem('primedesk_unattended_hash');
+          if (this.dom.unattendedPasswordInput) {
+            this.dom.unattendedPasswordInput.value = '';
+            this.dom.unattendedPasswordInput.placeholder = 'Set Unattended Password';
+          }
+          if (this.dom.unattendedPasswordInputSettings) {
+            this.dom.unattendedPasswordInputSettings.value = '';
+            this.dom.unattendedPasswordInputSettings.placeholder = 'Enter master password';
+          }
         }
       });
     }
@@ -943,19 +1045,19 @@ class PrimeDeskApp {
     // Set Unattended Password inside Settings
     if (this.dom.saveUnattendedPassSettingsBtn) {
       this.dom.saveUnattendedPassSettingsBtn.addEventListener('click', async () => {
-        const pass = this.dom.unattendedPasswordInputSettings.value.trim();
-        if (!pass) {
-          await this.showCustomAlert('Input Required', 'Please enter an unattended master password.', 'warning');
-          return;
+        const saved = await this.saveUnattendedPassword(this.dom.unattendedPasswordInputSettings.value);
+        if (saved) {
+          this.dom.saveUnattendedPassSettingsBtn.textContent = 'Saved!';
+          setTimeout(() => { this.dom.saveUnattendedPassSettingsBtn.textContent = 'Set Password'; }, 2000);
         }
-        this.unattendedPassHash = await this.hashPassword(pass);
-        localStorage.setItem('primedesk_unattended_hash', this.unattendedPassHash);
-        this.dom.saveUnattendedPassSettingsBtn.textContent = 'Saved!';
-        setTimeout(() => { this.dom.saveUnattendedPassSettingsBtn.textContent = 'Set Password'; }, 2000);
-        this.dom.unattendedPasswordInputSettings.value = '';
-        this.dom.unattendedPasswordInputSettings.placeholder = '•••••• (Password active)';
-        this.dom.unattendedPasswordInput.placeholder = '•••••• (Password active)';
-        await this.showCustomAlert('Password Saved', 'Unattended access master password has been securely saved.', 'success');
+      });
+    }
+    if (this.dom.unattendedPasswordInputSettings) {
+      this.dom.unattendedPasswordInputSettings.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.saveUnattendedPassword(this.dom.unattendedPasswordInputSettings.value);
+        }
       });
     }
 
@@ -1059,6 +1161,18 @@ class PrimeDeskApp {
       this.permFile = this.dom.permFileToggle ? this.dom.permFileToggle.checked : this.permFile;
       this.permPrivacy = this.dom.permPrivacyToggle ? this.dom.permPrivacyToggle.checked : this.permPrivacy;
       this.autoLock = this.dom.autoLockToggle ? this.dom.autoLockToggle.checked : this.autoLock;
+
+      if (this.unattendedEnabled && this.dom.unattendedPasswordInputSettings && this.dom.unattendedPasswordInputSettings.value.trim()) {
+        await this.saveUnattendedPassword(this.dom.unattendedPasswordInputSettings.value, { silent: true });
+      }
+      if (this.unattendedEnabled && !this.unattendedPassHash) {
+        await this.showCustomAlert(
+          'Unattended Password Missing',
+          'Unattended Access is turned ON, but no master password has been set yet. Enter a password under Security & Access to allow unattended connections.',
+          'warning'
+        );
+        return;
+      }
 
       // Recording & Audit
       this.autoRecord = this.dom.autoRecordToggle ? this.dom.autoRecordToggle.checked : this.autoRecord;
@@ -1214,19 +1328,42 @@ class PrimeDeskApp {
     const cancelPasswordPrompt = () => {
       this.dom.passwordPromptModal.style.display = 'none';
       this.dom.targetUnattendedPassInput.value = '';
+      if (this.dom.passwordPromptError) {
+        this.dom.passwordPromptError.textContent = '';
+        this.dom.passwordPromptError.style.display = 'none';
+      }
       this.endSession();
     };
-    this.dom.closePassPromptBtn.addEventListener('click', cancelPasswordPrompt);
-    this.dom.cancelPassPromptBtn.addEventListener('click', cancelPasswordPrompt);
-    this.dom.submitPassPromptBtn.addEventListener('click', async () => {
+    const submitPasswordPrompt = async () => {
       const pass = this.dom.targetUnattendedPassInput.value.trim();
-      if (!pass) return;
+      if (!pass) {
+        if (this.dom.passwordPromptError) {
+          this.dom.passwordPromptError.textContent = 'Please enter the unattended master password.';
+          this.dom.passwordPromptError.style.display = 'block';
+        }
+        return;
+      }
       const hash = await this.hashPassword(pass);
       this.dom.passwordPromptModal.style.display = 'none';
       this.dom.targetUnattendedPassInput.value = '';
-
+      if (this.dom.passwordPromptError) {
+        this.dom.passwordPromptError.textContent = '';
+        this.dom.passwordPromptError.style.display = 'none';
+      }
+      this.showConnectingOverlay(this.pendingConnectCode, 'Authorizing Session...', 'Verifying unattended access password...');
       this.sendSignal({ type: 'auth-response', hash });
-    });
+    };
+    this.dom.closePassPromptBtn.addEventListener('click', cancelPasswordPrompt);
+    this.dom.cancelPassPromptBtn.addEventListener('click', cancelPasswordPrompt);
+    this.dom.submitPassPromptBtn.addEventListener('click', submitPasswordPrompt);
+    if (this.dom.targetUnattendedPassInput) {
+      this.dom.targetUnattendedPassInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitPasswordPrompt();
+        }
+      });
+    }
 
     // Remote Viewport controls
     this.dom.disconnectBtn.addEventListener('click', () => this.endSession());
@@ -1819,6 +1956,11 @@ class PrimeDeskApp {
         if (msg.code && msg.code !== this.myCode) {
           this.myCode = msg.code;
           localStorage.setItem('primedesk_device_id', this.myCode);
+          if (window.primeDeskAPI && typeof window.primeDeskAPI.saveDeviceIdentity === 'function') {
+            try {
+              window.primeDeskAPI.saveDeviceIdentity({ code: this.myCode, token: this.deviceToken });
+            } catch (e) {}
+          }
           if (this.dom.mySessionCode) {
             this.dom.mySessionCode.textContent = this.formatCode(this.myCode);
           }
@@ -1839,15 +1981,19 @@ class PrimeDeskApp {
       case 'incoming-connection':
         if (source !== 'host') break;
         console.log('[Host] Incoming connection request received');
+        this.hostAuthFailCount = 0;
         this.resolveIceServers(this.myCode).catch(() => {});
-        if (this.unattendedEnabled && this.unattendedPassHash) {
-          // If unattended access active, check password or request auth
-          this.sendSignal({ type: 'auth-required' });
-        } else {
-          // Show the AnyDesk-style incoming accept/decline prompt!
-          this.dom.incomingCallerText.textContent = `${msg.clientName || 'Support Technician'} is requesting remote control.`;
-          this.dom.incomingModal.style.display = 'flex';
-        }
+        (async () => {
+          if (this.unattendedEnabled && !this.unattendedPassHash && this.dom.unattendedPasswordInput && this.dom.unattendedPasswordInput.value.trim()) {
+            await this.saveUnattendedPassword(this.dom.unattendedPasswordInput.value, { silent: true });
+          }
+          if (this.unattendedEnabled && this.unattendedPassHash) {
+            this.sendSignal({ type: 'auth-required' });
+          } else {
+            this.dom.incomingCallerText.textContent = `${msg.clientName || 'Support Technician'} is requesting remote control.`;
+            this.dom.incomingModal.style.display = 'flex';
+          }
+        })();
         break;
 
       case 'connection-accepted':
@@ -1916,6 +2062,7 @@ class PrimeDeskApp {
   clearSessionChannels() {
     this.clearPeerDisconnectTimer();
     this.peerEverConnected = false;
+    this.savedPass = null;
     this.recordedCurrentSession = false;
     this.pendingIceCandidates = [];
     this.viewerPeerReadyPromise = null;
@@ -2214,6 +2361,61 @@ class PrimeDeskApp {
     };
   }
 
+  computeClipSignature(paths) {
+    if (!Array.isArray(paths) || paths.length === 0) return '';
+    return paths
+      .map(p => String(p || '').trim().toLowerCase())
+      .filter(Boolean)
+      .sort()
+      .join('\n');
+  }
+
+  isStagedClipboardPath(filePath) {
+    return /[\\/]PrimeDesk_Clipboard[\\/]/i.test(String(filePath || ''));
+  }
+
+  async handleLocalClipboardFilesChanged(files) {
+    const valid = Array.isArray(files) ? files.filter(Boolean) : [];
+    if (valid.length === 0) {
+      this.lastSyncedOutFileClipSig = '';
+      this.remoteClipSyncedAckSig = '';
+      return;
+    }
+    if (!this.permClipboard || !this.permFile || !this.clipboardChannel || this.clipboardChannel.readyState !== 'open') {
+      return;
+    }
+    if (valid.some(p => this.isStagedClipboardPath(p))) {
+      return;
+    }
+    const sig = this.computeClipSignature(valid);
+    if (!sig || sig === this.lastInjectedFileClipSig || sig === this.lastSyncedOutFileClipSig) {
+      return;
+    }
+    try {
+      const manifest = await window.primeDeskAPI.fsCollectItems(valid);
+      if (!manifest || !manifest.rootItems || manifest.rootItems.length === 0) return;
+
+      this.lastSyncedOutFileClipSig = sig;
+      if (this.role === 'host') {
+        this.clipboardChannel.send(JSON.stringify({
+          type: 'clip-files-ready',
+          paths: valid,
+          rootItems: manifest.rootItems,
+          totalSize: manifest.totalSize
+        }));
+      } else if (this.role === 'viewer' && (manifest.totalSize || 0) <= FILE_CLIP_AUTO_MAX_BYTES) {
+        if (this.fileChannel && this.fileChannel.readyState === 'open') {
+          this.enqueueOutgoingTransfer({
+            targetDir: null,
+            purpose: 'clipboard-sync',
+            clipSourceSig: sig,
+            manifest
+          });
+        }
+      }
+    } catch (e) {}
+  }
+
   setupClipboardChannel(dc) {
     dc.onopen = () => {
       console.log('[Clipboard] Sync Channel Open');
@@ -2224,6 +2426,8 @@ class PrimeDeskApp {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'clip' && data.text) {
+          this.remoteClipSyncedAckSig = '';
+          this.lastSyncedOutFileClipSig = '';
           this.lastCopiedText = data.text;
           if (window.primeDeskAPI) {
             await window.primeDeskAPI.writeClipboard(data.text);
@@ -2232,9 +2436,11 @@ class PrimeDeskApp {
           if (!window.primeDeskAPI) return;
           if (this.permFile && window.primeDeskAPI.clipGetFiles) {
             const clipFiles = await window.primeDeskAPI.clipGetFiles();
-            if (clipFiles && clipFiles.length > 0) {
+            if (clipFiles && clipFiles.length > 0 && !clipFiles.some(p => this.isStagedClipboardPath(p))) {
+              const sig = this.computeClipSignature(clipFiles);
               const collected = await window.primeDeskAPI.fsCollectItems(clipFiles);
               if (collected && collected.rootItems && collected.rootItems.length > 0) {
+                this.lastSyncedOutFileClipSig = sig;
                 dc.send(JSON.stringify({
                   type: 'clip-files-ready',
                   paths: clipFiles,
@@ -2252,16 +2458,19 @@ class PrimeDeskApp {
           }
         } else if (data.type === 'clip-files-ready') {
           if (!this.permFile) return;
+          this.remoteClipSyncedAckSig = '';
           this.handleRemoteClipboardFilesReady(data);
+        } else if (data.type === 'clip-sync-ack') {
+          if (data.sig && data.sig === this.lastSyncedOutFileClipSig) {
+            this.remoteClipSyncedAckSig = data.sig;
+          }
         }
       } catch (e) {}
     };
   }
 
   startClipboardPolling() {
-    if (this.clipboardPollInterval) {
-      clearInterval(this.clipboardPollInterval);
-    }
+    this.stopClipboardPolling();
     this.clipboardPollInterval = setInterval(async () => {
       if (!this.permClipboard) return;
       if (window.primeDeskAPI && this.clipboardChannel && this.clipboardChannel.readyState === 'open') {
@@ -2269,11 +2478,29 @@ class PrimeDeskApp {
           const currentText = await window.primeDeskAPI.readClipboard();
           if (currentText && currentText !== this.lastCopiedText) {
             this.lastCopiedText = currentText;
+            this.lastSyncedOutFileClipSig = '';
+            this.remoteClipSyncedAckSig = '';
             this.clipboardChannel.send(JSON.stringify({ type: 'clip', text: currentText }));
           }
         } catch (e) {}
       }
     }, 350);
+    if (this.permClipboard && this.permFile && window.primeDeskAPI && window.primeDeskAPI.clipWatchStart) {
+      window.primeDeskAPI.clipWatchStart().catch(() => {});
+    }
+  }
+
+  stopClipboardPolling() {
+    if (this.clipboardPollInterval) {
+      clearInterval(this.clipboardPollInterval);
+      this.clipboardPollInterval = null;
+    }
+    this.lastInjectedFileClipSig = '';
+    this.lastSyncedOutFileClipSig = '';
+    this.remoteClipSyncedAckSig = '';
+    if (window.primeDeskAPI && window.primeDeskAPI.clipWatchStop) {
+      window.primeDeskAPI.clipWatchStop().catch(() => {});
+    }
   }
 
   stopHosting() {
@@ -2288,10 +2515,7 @@ class PrimeDeskApp {
       window.primeDeskAPI.sendInput('SPECIAL LOCK');
     }
 
-    if (this.clipboardPollInterval) {
-      clearInterval(this.clipboardPollInterval);
-      this.clipboardPollInterval = null;
-    }
+    this.stopClipboardPolling();
 
     if (window.primeDeskAPI) {
       window.primeDeskAPI.restoreNormalMode();
@@ -2535,25 +2759,41 @@ class PrimeDeskApp {
   async handlePeerSignal(data) {
     if (data.type === 'auth-required') {
       if (this.savedPass) {
+        this.showConnectingOverlay(this.pendingConnectCode, 'Authorizing Session...', 'Authenticating with saved workstation password...');
         this.sendSignal({ type: 'auth-response', hash: this.savedPass });
       } else {
-        this.dom.passwordPromptModal.style.display = 'flex';
+        this.showPasswordPromptModal('');
       }
       return;
     }
 
+    if (data.type === 'auth-failed') {
+      this.savedPass = null;
+      this.showPasswordPromptModal(data.reason || 'Incorrect unattended password. Please try again.');
+      return;
+    }
+
     if (data.type === 'auth-response') {
-      if (data.hash === this.unattendedPassHash) {
+      if (this.unattendedEnabled && this.unattendedPassHash && data.hash === this.unattendedPassHash) {
         console.log('[Host] Unattended access authorized. Starting stream...');
+        this.hostAuthFailCount = 0;
         this.role = 'host';
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'accept-connection' }));
         }
         this.initiateHostStream();
       } else {
-        await this.showCustomAlert('Authentication Denied', 'Invalid unattended access password. Connection rejected.', 'error');
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'decline-connection', reason: 'Invalid unattended password' }));
+        this.hostAuthFailCount = (this.hostAuthFailCount || 0) + 1;
+        if (this.hostAuthFailCount < 5) {
+          this.sendSignal({
+            type: 'auth-failed',
+            reason: `Incorrect unattended password (attempt ${this.hostAuthFailCount}/5).`
+          });
+        } else {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'decline-connection', reason: 'Too many invalid password attempts' }));
+          }
+          this.hostAuthFailCount = 0;
         }
       }
       return;
@@ -2695,11 +2935,17 @@ class PrimeDeskApp {
             try {
               const clipFiles = await window.primeDeskAPI.clipGetFiles();
               if (clipFiles && clipFiles.length > 0) {
+                const sig = this.computeClipSignature(clipFiles);
+                if (sig && sig === this.remoteClipSyncedAckSig) {
+                  setTimeout(() => this.sendInputCommand('PASTE'), 20);
+                  return;
+                }
                 const manifest = await window.primeDeskAPI.fsCollectItems(clipFiles);
                 if (manifest && manifest.rootItems && manifest.rootItems.length > 0) {
                   this.enqueueOutgoingTransfer({
                     targetDir: null,
                     purpose: 'clipboard-paste',
+                    clipSourceSig: sig,
                     manifest
                   });
                   return;
@@ -2914,7 +3160,7 @@ class PrimeDeskApp {
     this.isSendingTransfer = false;
   }
 
-  async executeOutgoingTransfer({ targetDir, purpose, manifest }) {
+  async executeOutgoingTransfer({ targetDir, purpose, clipSourceSig = '', manifest }) {
     const dc = this.fileChannel;
     if (!dc || dc.readyState !== 'open' || !window.primeDeskAPI) return;
 
@@ -2930,7 +3176,7 @@ class PrimeDeskApp {
     this.activeSendTransfer = tx;
     this.refreshVideoBitrate();
 
-    const labelPrefix = purpose === 'clipboard-paste' ? 'Pasting' : 'Sending';
+    const labelPrefix = purpose === 'clipboard-paste' ? 'Pasting' : (purpose === 'clipboard-sync' ? 'Syncing clipboard' : 'Sending');
     const summaryName = rootNames.length === 1 ? rootNames[0] : `${rootNames.length} items`;
     this.updateTransferUI(`${labelPrefix}: ${summaryName}`, 0, true, true);
 
@@ -2938,6 +3184,7 @@ class PrimeDeskApp {
       type: 'batch-start',
       transferId,
       purpose,
+      clipSourceSig,
       targetDir,
       totalSize,
       totalFiles: files.length,
@@ -3093,7 +3340,7 @@ class PrimeDeskApp {
 
     if (msg.type === 'batch-start') {
       let baseDir = msg.targetDir;
-      if (msg.purpose === 'clipboard-paste' || msg.purpose === 'clipboard') {
+      if (msg.purpose === 'clipboard-paste' || msg.purpose === 'clipboard' || msg.purpose === 'clipboard-sync') {
         baseDir = await window.primeDeskAPI.clipCreateStageDir();
       } else if (!baseDir) {
         baseDir = await window.primeDeskAPI.getDownloadsDir();
@@ -3110,6 +3357,7 @@ class PrimeDeskApp {
       this.activeReceiveTransfer = {
         transferId: msg.transferId,
         purpose: msg.purpose,
+        clipSourceSig: msg.clipSourceSig || '',
         baseDir,
         totalSize: msg.totalSize || 0,
         totalFiles: msg.totalFiles || 0,
@@ -3181,6 +3429,7 @@ class PrimeDeskApp {
         for (const r of completed.rootNames) {
           rootPaths.push(await window.primeDeskAPI.fsResolveSafeTarget(completed.baseDir, r));
         }
+        this.lastInjectedFileClipSig = this.computeClipSignature(rootPaths);
         await window.primeDeskAPI.clipSetFiles(rootPaths);
         if (this.permControl) {
           await window.primeDeskAPI.sendInput('PASTE');
@@ -3191,8 +3440,22 @@ class PrimeDeskApp {
         for (const r of completed.rootNames) {
           rootPaths.push(await window.primeDeskAPI.fsResolveSafeTarget(completed.baseDir, r));
         }
+        this.lastInjectedFileClipSig = this.computeClipSignature(rootPaths);
         await window.primeDeskAPI.clipSetFiles(rootPaths);
-        this.updateTransferUI('Copied files ready — Press Ctrl+V on your PC', 100, false, true);
+        this.updateTransferUI('Copied files ready — Paste anywhere on your PC', 100, false, true);
+      } else if (completed.purpose === 'clipboard-sync') {
+        const rootPaths = [];
+        for (const r of completed.rootNames) {
+          rootPaths.push(await window.primeDeskAPI.fsResolveSafeTarget(completed.baseDir, r));
+        }
+        this.lastInjectedFileClipSig = this.computeClipSignature(rootPaths);
+        await window.primeDeskAPI.clipSetFiles(rootPaths);
+        if (completed.clipSourceSig && this.clipboardChannel && this.clipboardChannel.readyState === 'open') {
+          try {
+            this.clipboardChannel.send(JSON.stringify({ type: 'clip-sync-ack', sig: completed.clipSourceSig }));
+          } catch (e) {}
+        }
+        this.updateTransferUI('Clipboard files synced — Paste anywhere on remote PC', 100, false, true);
       } else {
         this.updateTransferUI('Download complete', 100, false, true);
         if (this.role === 'viewer' && this.dom.fileManagerModal.style.display === 'flex') {
@@ -3683,10 +3946,7 @@ class PrimeDeskApp {
       this.pingInterval = null;
     }
 
-    if (this.clipboardPollInterval) {
-      clearInterval(this.clipboardPollInterval);
-      this.clipboardPollInterval = null;
-    }
+    this.stopClipboardPolling();
 
     if (this.role === 'host') {
       this.stopHosting();

@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('primeDeskAPI', {
   getSources: () => ipcRenderer.invoke('get-sources'),
+  syncDeviceIdentity: (seed) => ipcRenderer.sendSync('sync-device-identity', seed),
+  saveDeviceIdentity: (identity) => ipcRenderer.sendSync('save-device-identity', identity),
   getScreenSize: () => ipcRenderer.invoke('get-screen-size'),
   getLocalIPs: () => ipcRenderer.invoke('get-local-ips'),
   sendInput: (command) => ipcRenderer.invoke('send-input', command),
@@ -53,6 +55,13 @@ contextBridge.exposeInMainWorld('primeDeskAPI', {
   clipGetFiles: () => ipcRenderer.invoke('clip-get-files'),
   clipSetFiles: (paths) => ipcRenderer.invoke('clip-set-files', paths),
   clipCreateStageDir: () => ipcRenderer.invoke('clip-create-stage-dir'),
+  clipWatchStart: () => ipcRenderer.invoke('clip-watch-start'),
+  clipWatchStop: () => ipcRenderer.invoke('clip-watch-stop'),
+  onClipFilesChanged: (cb) => {
+    const handler = (_, payload) => cb(payload);
+    ipcRenderer.on('clip-files-changed', handler);
+    return () => ipcRenderer.removeListener('clip-files-changed', handler);
+  },
 
   // Frameless Floating Pill Window IPC
   pillResize: (height) => ipcRenderer.invoke('pill-resize', height),

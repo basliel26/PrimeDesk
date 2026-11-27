@@ -50,8 +50,8 @@ Pre-compiled standalone Windows x64 binaries are built and published automatical
 
 📦 **[Download Latest PrimeDesk Release](https://github.com/basliel26/PrimeDesk/releases/latest)**
 
-- **`PrimeDesk-Setup-1.2.2.exe`** — Standard Windows installer with desktop shortcut, start menu entry, and optional startup launch.
-- **`PrimeDesk-Portable-1.2.2.exe`** — Single self-contained executable that runs directly from any folder or USB drive with zero installation.
+- **`PrimeDesk-Setup-1.2.3.exe`** — Standard Windows installer with desktop shortcut, start menu entry, and optional startup launch.
+- **`PrimeDesk-Portable-1.2.3.exe`** — Single self-contained executable that runs directly from any folder or USB drive with zero installation (with persistent terminal IDs via `%APPDATA%\PrimeDesk`).
 
 ---
 
@@ -63,7 +63,7 @@ Pre-compiled standalone Windows x64 binaries are built and published automatical
 | **Instant Connection** | **Persistent 9-Digit Terminal IDs** | Each workstation keeps a persistent 9-digit address (`XXX XXX XXX`) with device-token identity protection and an instant **Accept / Decline** prompt for interactive sessions. |
 | **Unattended Access** | **After-Hours Master Password** | Optional salted SHA-256 master password unlocks direct unattended login without someone sitting at the remote keyboard. |
 | **Devices & History** | **Pinned Favorites + Recent History** | Automatically keeps your last **15** connected destinations for quick one-click reconnect, with **Pin/Bookmark**, search filter, custom nicknames, and clear-history controls. |
-| **File Transfers** | **Dual-Pane File Manager & `CF_HDROP`** | Stream unlimited files and folders both directions (`Give` & `Take`) over chunked WebRTC data channels, or copy & paste files directly with `Ctrl+C` / `Ctrl+V` via `PrimeClipboard.exe`. |
+| **File Transfers** | **Dual-Pane File Manager & `CF_HDROP`** | Stream unlimited files and folders both directions (`Give` & `Take`) over chunked WebRTC data channels, or copy & paste files directly with right-click Copy/Paste or `Ctrl+C` / `Ctrl+V` via `PrimeClipboard.exe`. |
 | **Global Connectivity** | **P2P + Cloudflare TURN + Offline LAN** | Connects direct peer-to-peer whenever possible, falls back seamlessly to Cloudflare Realtime TURN across restrictive NAT/firewalls, and supports isolated LAN mode + HTTP/SOCKS5 proxies. |
 | **Host Controls** | **Floating Pill & Privacy Blackout** | Hosting minimizes into a compact always-on-top session pill with live chat & instant disconnect; remote technicians can also toggle Privacy Mode screen blackout and special keys (`Ctrl+Shift+Esc`, `Win+D`, `Win+L`). |
 | **Modern Minimal UI** | **Responsive Dark / Light / System UI** | Offline bundled **Montserrat** typography, Dark / Light / Match System themes, and fluid layout scaling from compact `360px` windows up to maximized desktops. |

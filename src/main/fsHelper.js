@@ -7,6 +7,7 @@ const os = require('os');
 const readHandles = new Map();
 const writeHandles = new Map();
 let nextHandleId = 1;
+let clipWatchProcess = null;
 
 function resolveNativeExe(filename) {
   let exePath = path.join(__dirname, '..', 'native', filename);
@@ -94,6 +95,67 @@ function createClipboardStageDir() {
   const stageDir = path.join(baseRoot, `clip_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
   fs.mkdirSync(stageDir, { recursive: true });
   return stageDir;
+}
+
+function stopClipboardWatch() {
+  if (!clipWatchProcess) return false;
+  const proc = clipWatchProcess;
+  clipWatchProcess = null;
+  try {
+    if (proc.stdin && proc.stdin.writable) {
+      proc.stdin.write('QUIT\n');
+      proc.stdin.end();
+    }
+  } catch (e) {}
+  try { proc.kill(); } catch (e) {}
+  return true;
+}
+
+function startClipboardWatch(onFilesChanged) {
+  stopClipboardWatch();
+  if (process.platform !== 'win32') return false;
+  const exePath = resolveNativeExe('PrimeClipboard.exe');
+  if (!fs.existsSync(exePath)) return false;
+
+  const child = spawn(exePath, ['WATCH', String(process.pid)], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'ignore']
+  });
+  clipWatchProcess = child;
+
+  let stdoutBuf = '';
+  child.stdout.on('data', (chunk) => {
+    if (clipWatchProcess !== child) return;
+    stdoutBuf += chunk.toString('utf8');
+    let idx;
+    while ((idx = stdoutBuf.indexOf('\n')) !== -1) {
+      const line = stdoutBuf.slice(0, idx).trim();
+      stdoutBuf = stdoutBuf.slice(idx + 1);
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed && Array.isArray(parsed.files)) {
+          const valid = parsed.files.filter(p => p && fs.existsSync(p));
+          if (typeof onFilesChanged === 'function') {
+            onFilesChanged(valid);
+          }
+        }
+      } catch (e) {}
+    }
+  });
+
+  child.on('close', () => {
+    if (clipWatchProcess === child) {
+      clipWatchProcess = null;
+    }
+  });
+  child.on('error', () => {
+    if (clipWatchProcess === child) {
+      clipWatchProcess = null;
+    }
+  });
+
+  return true;
 }
 
 function raceTimeout(promise, ms) {
@@ -373,6 +435,8 @@ module.exports = {
   getClipboardFiles,
   setClipboardFiles,
   createClipboardStageDir,
+  startClipboardWatch,
+  stopClipboardWatch,
   listRoots,
   listDir,
   makeDir,

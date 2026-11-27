@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, screen, clipboard, session, dialog, net, nativeTheme } = require('electron');
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -75,6 +76,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     inputHandler.stop();
+    fsHelper.stopClipboardWatch();
     fsHelper.cleanupAllHandles();
     closePillWindow();
     if (privacyWindow) {
@@ -85,26 +87,108 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(async () => {
-  try {
-    await session.defaultSession.setProxy({ mode: 'system' });
-    console.log('[PrimeDesk] System network proxy initialized on startup');
-  } catch (err) {
-    console.warn('[PrimeDesk] Could not initialize system proxy:', err);
-  }
+const allowMultiInstance = process.argv.includes('--multi');
+const hasSingleInstanceLock = allowMultiInstance ? true : app.requestSingleInstanceLock();
 
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (pillWindow && !pillWindow.isDestroyed()) {
+      if (pillWindow.isMinimized()) pillWindow.restore();
+      pillWindow.show();
+      pillWindow.focus();
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
+}
+
+function getIdentityFilePath() {
+  return path.join(app.getPath('userData'), 'device-identity.json');
+}
+
+function generateRandomCode() {
+  return String(crypto.randomInt(100000000, 1000000000));
+}
+
+function readDiskIdentity() {
+  try {
+    const filePath = getIdentityFilePath();
+    if (!fs.existsSync(filePath)) return null;
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (raw && /^\d{9}$/.test(String(raw.code || '')) && raw.token) {
+      return { code: String(raw.code), token: String(raw.token) };
+    }
+  } catch (e) {}
+  return null;
+}
+
+function writeDiskIdentity(identity) {
+  try {
+    const dir = app.getPath('userData');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(getIdentityFilePath(), JSON.stringify(identity, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+ipcMain.on('sync-device-identity', (event, seed) => {
+  if (allowMultiInstance) {
+    const code = (seed && /^\d{9}$/.test(String(seed.code || ''))) ? String(seed.code) : generateRandomCode();
+    const token = (seed && seed.token) ? String(seed.token) : crypto.randomUUID();
+    event.returnValue = { code, token };
+    return;
+  }
+  const existing = readDiskIdentity();
+  if (existing) {
+    event.returnValue = existing;
+    return;
+  }
+  const migratedCode = (seed && /^\d{9}$/.test(String(seed.code || ''))) ? String(seed.code) : generateRandomCode();
+  const migratedToken = (seed && seed.token) ? String(seed.token) : crypto.randomUUID();
+  const identity = { code: migratedCode, token: migratedToken };
+  writeDiskIdentity(identity);
+  event.returnValue = identity;
 });
 
-app.on('window-all-closed', () => {
-  inputHandler.stop();
-  fsHelper.cleanupAllHandles();
-  if (process.platform !== 'darwin') app.quit();
+ipcMain.on('save-device-identity', (event, payload) => {
+  if (allowMultiInstance || !payload || !/^\d{9}$/.test(String(payload.code || '')) || !payload.token) {
+    event.returnValue = false;
+    return;
+  }
+  event.returnValue = writeDiskIdentity({ code: String(payload.code), token: String(payload.token) });
 });
+
+if (hasSingleInstanceLock) {
+  app.whenReady().then(async () => {
+    try {
+      await session.defaultSession.setProxy({ mode: 'system' });
+      console.log('[PrimeDesk] System network proxy initialized on startup');
+    } catch (err) {
+      console.warn('[PrimeDesk] Could not initialize system proxy:', err);
+    }
+
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    inputHandler.stop();
+    fsHelper.stopClipboardWatch();
+    fsHelper.cleanupAllHandles();
+    if (process.platform !== 'darwin') app.quit();
+  });
+}
 
 // IPC handlers
 ipcMain.handle('get-sources', async () => {
@@ -294,6 +378,12 @@ ipcMain.handle('get-downloads-dir', () => app.getPath('downloads') || path.join(
 ipcMain.handle('clip-get-files', () => fsHelper.getClipboardFiles());
 ipcMain.handle('clip-set-files', (event, paths) => fsHelper.setClipboardFiles(paths));
 ipcMain.handle('clip-create-stage-dir', () => fsHelper.createClipboardStageDir());
+ipcMain.handle('clip-watch-start', () => fsHelper.startClipboardWatch((files) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('clip-files-changed', { files });
+  }
+}));
+ipcMain.handle('clip-watch-stop', () => fsHelper.stopClipboardWatch());
 
 // File Transfer Storage Handler
 ipcMain.handle('save-received-file', async (event, { filename, buffer }) => {
@@ -334,7 +424,8 @@ ipcMain.handle('set-privacy-mode', (event, enabled) => {
         skipTaskbar: true,
         focusable: false
       });
-      privacyWindow.loadURL(`data:text/html;charset=utf-8,
+      const privacyHtml = `
+        <!DOCTYPE html>
         <html>
           <body style="background:#000;color:#38bdf8;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;">
             <h1 style="font-size:2rem;margin-bottom:8px;">🔒 Remote Maintenance Active</h1>
@@ -342,7 +433,8 @@ ipcMain.handle('set-privacy-mode', (event, enabled) => {
             <p style="font-size:0.85rem;color:#64748b;margin-top:16px;">Confidential data protected under Privacy Mode.</p>
           </body>
         </html>
-      `);
+      `;
+      privacyWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(privacyHtml)}`);
     }
   } else {
     if (privacyWindow) {
